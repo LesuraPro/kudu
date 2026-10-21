@@ -1,24 +1,30 @@
-/* Общие цвета. Тема переключается через nativeTheme в main.js,
-   а окна просто реагируют на prefers-color-scheme. */
+/* Общий стиль в духе Nothing: чёрное стекло, моноширинный текст,
+   точечные (dot-matrix) цифры и один красный акцент.
+   Тема переключается через nativeTheme в main.js, окна реагируют на prefers-color-scheme. */
 :root {
-  --glass: rgba(246, 246, 248, 0.72);
-  --glass-strong: rgba(255, 255, 255, 0.9);
-  --border: rgba(0, 0, 0, 0.1);
-  --text: #1d1d1f;
-  --muted: #6e6e73;
-  --accent: #e5484d;
-  --hover: rgba(0, 0, 0, 0.06);
-  --shadow: 0 10px 40px rgba(0, 0, 0, 0.25);
+  --bg: rgba(10, 10, 12, 0.86);
+  --bg-strong: rgba(16, 16, 18, 0.97);
+  --border: rgba(255, 255, 255, 0.09);
+  --text: #f2f2f2;
+  --muted: #8b8b90;
+  --dot-off: rgba(255, 255, 255, 0.1);
+  --accent: #ff2d2d;
+  --hover: rgba(255, 255, 255, 0.07);
+  --shadow: 0 18px 50px rgba(0, 0, 0, 0.45);
+  --mono: 'Cascadia Mono', 'JetBrains Mono', Consolas, ui-monospace, monospace;
+  --sans: 'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif;
 }
 
-@media (prefers-color-scheme: dark) {
+@media (prefers-color-scheme: light) {
   :root {
-    --glass: rgba(30, 30, 34, 0.7);
-    --glass-strong: rgba(36, 36, 40, 0.92);
-    --border: rgba(255, 255, 255, 0.12);
-    --text: #f5f5f7;
-    --muted: #a1a1a6;
-    --hover: rgba(255, 255, 255, 0.08);
+    --bg: rgba(240, 240, 240, 0.9);
+    --bg-strong: rgba(250, 250, 250, 0.97);
+    --border: rgba(0, 0, 0, 0.08);
+    --text: #111;
+    --muted: #6b6b70;
+    --dot-off: rgba(0, 0, 0, 0.1);
+    --hover: rgba(0, 0, 0, 0.06);
+    --shadow: 0 18px 50px rgba(0, 0, 0, 0.18);
   }
 }
 
@@ -28,14 +34,64 @@ html, body {
   margin: 0;
   background: transparent;
   color: var(--text);
-  font-family: 'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif;
+  font-family: var(--mono);
   user-select: none;
   overflow: hidden;
 }
 
 .glass {
-  background: var(--glass);
-  backdrop-filter: blur(24px) saturate(180%);
+  background: var(--bg);
+  backdrop-filter: blur(24px) saturate(160%);
   border: 1px solid var(--border);
   box-shadow: var(--shadow);
+}
+
+/* Подпись в стиле «● NOW PLAYING» */
+.label {
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.label::before {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  vertical-align: 1px;
+}
+
+/* Таблетка с бегущей строкой */
+.pill {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  padding: 5px 12px;
+  border-radius: 999px;
+  background: var(--bg-strong);
+  border: 1px solid var(--border);
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.pill .dot { width: 6px; height: 6px; flex: none; border-radius: 50%; background: var(--accent); }
+.pill.live .dot { animation: blink 1.2s steps(2, jump-none) infinite; }
+.marquee { overflow: hidden; flex: 1; }
+.marquee span { display: inline-block; padding-left: 100%; animation: marquee 12s linear infinite; }
+
+@keyframes blink { 50% { opacity: 0.2; } }
+@keyframes marquee { to { transform: translateX(-100%); } }
+
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: none;
+  cursor: pointer;
 }

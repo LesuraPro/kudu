@@ -81,9 +81,9 @@ dock.addEventListener('mousemove', (e) => {
   }
 })
 
-dock.addEventListener('mouseenter', () => window.familiar.dockHover(true))
+dock.addEventListener('mouseenter', () => window.familiar.captureMouse(true))
 dock.addEventListener('mouseleave', () => {
-  window.familiar.dockHover(false)
+  window.familiar.captureMouse(false)
   for (const el of dock.querySelectorAll('.item')) el.style.width = el.style.height = ''
 })
 

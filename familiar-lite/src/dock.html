@@ -16,8 +16,8 @@
         display: flex;
         align-items: flex-end;
         gap: 6px;
-        padding: 6px 10px;
-        border-radius: 20px;
+        padding: 7px 10px;
+        border-radius: 22px;
       }
       .item {
         position: relative;
@@ -41,8 +41,9 @@
         justify-content: center;
         font-size: 22px;
         font-weight: 600;
-        color: white;
-        background: linear-gradient(135deg, #5b5bd6, #e5484d);
+        color: var(--text);
+        background: var(--bg-strong);
+        border: 1px solid var(--border);
       }
       .item .tip {
         position: absolute;
@@ -50,10 +51,12 @@
         left: 50%;
         transform: translateX(-50%);
         white-space: nowrap;
-        padding: 3px 9px;
-        font-size: 12px;
-        border-radius: 6px;
-        background: var(--glass-strong);
+        padding: 4px 10px;
+        font-size: 10px;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        border-radius: 999px;
+        background: var(--bg-strong);
         border: 1px solid var(--border);
         opacity: 0;
         pointer-events: none;
@@ -62,7 +65,17 @@
       .item:hover .tip { opacity: 1; }
       .item.drop-target { outline: 2px dashed var(--accent); outline-offset: 2px; }
       .divider { width: 1px; align-self: stretch; margin: 6px 4px; background: var(--border); }
-      .item.system .letter { background: var(--hover); color: var(--text); font-size: 20px; }
+      .item.system .letter { background: var(--hover); font-size: 20px; }
+      /* Красная точка под кнопкой поиска — фирменный акцент */
+      .item.system::after {
+        content: '';
+        position: absolute;
+        bottom: -5px;
+        width: 4px;
+        height: 4px;
+        border-radius: 50%;
+        background: var(--accent);
+      }
     </style>
   </head>
   <body>
