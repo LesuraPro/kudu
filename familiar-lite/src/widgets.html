@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'" />
+    <link rel="stylesheet" href="theme.css" />
+    <style>
+      body { padding: 12px; display: flex; flex-direction: column; gap: 12px; }
+      .card { border-radius: 18px; padding: 14px 16px; -webkit-app-region: drag; }
+      .card input, .card button, .card li { -webkit-app-region: no-drag; }
+      .label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+      #time { font-size: 44px; font-weight: 300; line-height: 1.1; }
+      #date { color: var(--muted); }
+      #temp { font-size: 36px; font-weight: 300; }
+      #wdesc, #wrange { color: var(--muted); font-size: 14px; }
+      #battery .bar { height: 8px; border-radius: 4px; background: var(--hover); margin-top: 8px; overflow: hidden; }
+      #battery .fill { height: 100%; background: #30a46c; width: 0; }
+      ul { list-style: none; margin: 8px 0 0; padding: 0; max-height: 140px; overflow-y: auto; }
+      li { display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 14px; }
+      li.done span { text-decoration: line-through; color: var(--muted); }
+      li span { flex: 1; }
+      li button { opacity: 0; }
+      li:hover button { opacity: 1; }
+      button { border: none; background: none; color: var(--muted); cursor: pointer; font: inherit; }
+      #newReminder {
+        width: 100%;
+        margin-top: 8px;
+        padding: 6px 10px;
+        font: inherit;
+        font-size: 14px;
+        color: var(--text);
+        background: var(--hover);
+        border: none;
+        border-radius: 8px;
+        outline: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="card glass">
+      <div id="time">--:--</div>
+      <div id="date"></div>
+    </div>
+
+    <div class="card glass" id="weather">
+      <div class="label" id="city">Погода</div>
+      <div id="temp">…</div>
+      <div id="wdesc"></div>
+      <div id="wrange"></div>
+    </div>
+
+    <div class="card glass" id="battery" hidden>
+      <div class="label">Батарея</div>
+      <div id="bpct"></div>
+      <div class="bar"><div class="fill"></div></div>
+    </div>
+
+    <div class="card glass">
+      <div class="label">Напоминания</div>
+      <ul id="reminders"></ul>
+      <input id="newReminder" placeholder="Новое напоминание + Enter" />
+    </div>
+
+    <script src="widgets.js"></script>
+  </body>
+</html>

@@ -1,0 +1,22 @@
+{
+  "name": "familiar-lite",
+  "version": "0.1.0",
+  "description": "Бесплатная mac-подобная оболочка для Windows: док, виджеты, поиск по Alt+Space",
+  "main": "main.js",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "package:win": "electron-builder --win portable"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^33.2.1",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "local.familiar-lite",
+    "productName": "Familiar Lite",
+    "files": ["main.js", "preload.js", "src/**/*"],
+    "win": { "target": "portable" }
+  }
+}
