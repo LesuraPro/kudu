@@ -22,7 +22,7 @@ Widget.define('eyes', (card) => {
 
   // Позицию курсора спрашиваем у главного процесса — окно ведь его не видит
   async function trackCursor() {
-    if (document.hidden) return // окно скрыто — глазам смотреть некуда
+    if (document.hidden || Power.mode() === 'paused') return // окно скрыто или пауза — глазам смотреть некуда
     const p = await window.familiar.cursor()
     const cx = window.screenX + window.innerWidth / 2
     const cy = window.screenY + window.innerHeight / 2
@@ -92,7 +92,7 @@ Widget.define('eyes', (card) => {
     look.y += (target.y - look.y) * Math.min(1, dt * 10)
 
     if (now > nextBlink) {
-      blinkUntil = now + 140
+      blinkUntil = now + 200
       nextBlink = now + 2500 + Math.random() * 4000
     }
 
@@ -134,5 +134,6 @@ Widget.define('eyes', (card) => {
       dots.dot(ox + x * pitch + pitch / 2, oy + y * pitch + pitch / 2, pitch * (v ? 0.4 : 0.22), colors[v])
     }
     dots.flush()
-  }, { fps: 20 })
+    // Курсор двигается или играет музыка — 20 кадров; глаза в покое — 8 (хватит, чтобы моргнуть); спят — 4
+  }, { fps: () => (performance.now() - idleSince > 30000 ? 4 : performance.now() - idleSince < 2000 || Media.playing() ? 20 : 8) })
 })

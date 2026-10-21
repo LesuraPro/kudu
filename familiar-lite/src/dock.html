@@ -77,6 +77,11 @@
         transition: width 0.25s, background 0.25s;
       }
       .item .run.front { width: 12px; border-radius: 2px; background: var(--accent); }
+      .item.launching > :first-child { animation: launch 1.5s var(--spring); }
+      @keyframes launch {
+        0%, 40%, 80%, 100% { transform: translateY(0); }
+        20%, 60% { transform: translateY(-16px); }
+      }
 
       /* «Веер» папки: всплывает из иконки с пружинкой */
       #stack {

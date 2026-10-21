@@ -60,8 +60,15 @@ function render({ pinned, running, foreground }) {
       hwnds: app.hwnds,
       foreground,
       // Папка — раскрываем «веер»; уже запущено — переключаемся на окно; иначе запускаем
-      onClick: () =>
-        app.isDir ? toggleStack(app, el) : app.hwnds.length ? window.familiar.focusWindow(app.hwnds) : window.familiar.launch(app),
+      onClick: () => {
+        if (app.isDir) return toggleStack(app, el)
+        if (app.hwnds.length) return window.familiar.focusWindow(app.hwnds)
+        // Запуск: иконка подпрыгивает, пока приложение открывается (как в macOS)
+        el.classList.remove('launching')
+        void el.offsetWidth
+        el.classList.add('launching')
+        window.familiar.launch(app)
+      },
       onMenu: () => window.familiar.dockMenu(i)
     })
     iconFor(app, el)

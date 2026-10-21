@@ -36,7 +36,16 @@ const PLAY = 'M7 5v14l12-7z'
 const PAUSE = 'M6 5h4v14H6zM14 5h4v14h-4z'
 
 let shownArt = null
+let shownKey = null
 Media.onChange((m) => {
+  // Новый трек: обложка переворачивается, название въезжает
+  if (shownKey !== null && m.key !== shownKey) {
+    const track = document.querySelector('.track')
+    track.classList.remove('swap')
+    void track.offsetWidth
+    track.classList.add('swap')
+  }
+  shownKey = m.key
   const has = Media.hasTrack()
   island.classList.toggle('playing', Media.playing())
   $('app').textContent = has ? Media.appName() : '—'
@@ -180,7 +189,9 @@ let shownTime = ''
 // Между кадрами ждём таймером: висящий requestAnimationFrame заставляет Chromium
 // крутить полный цикл кадра 60 раз в секунду, даже если рисовать нечего
 function scheduleFrame() {
-  const fps = island.classList.contains('open') || Media.playing() ? 30 : 2
+  // В паузе (игра на весь экран) — только часы раз в 2 секунды; в экономии — вдвое меньше кадров
+  const busy = island.classList.contains('open') || Media.playing()
+  const fps = Power.mode() === 'paused' ? 0.5 : (busy ? 30 : 2) * Power.factor()
   const wait = 1000 / fps - (performance.now() - lastDraw)
   if (wait > 8) setTimeout(() => requestAnimationFrame(frame), wait - 4)
   else requestAnimationFrame(frame)

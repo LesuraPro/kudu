@@ -184,5 +184,6 @@ Widget.define('visualizer', (card) => {
       else dots.dot(px, py, pitch * (0.2 + b * 0.18), b > 0.92 && lvl > 0.45 ? accent : on, 0.25 + b * 0.75)
     }
     dots.flush()
-  }, { fps: 30 })
+    // Музыка или живой звук — 30 кадров; часы меняются раз в секунду; тишина — спокойные 12
+  }, { fps: () => (mode === 'clock' ? 4 : Media.playing() || Sound.source() === 'loopback' ? 30 : 12) })
 })

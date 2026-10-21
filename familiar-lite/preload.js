@@ -46,6 +46,8 @@ contextBridge.exposeInMainWorld('familiar', {
   getDevices: () => ipcRenderer.invoke('devices:get'),
   onDevices: on('devices'),
   cursor: () => ipcRenderer.invoke('cursor:get'),
+  getPower: () => ipcRenderer.invoke('power:get'),
+  onPower: on('power'),
 
   // Папка Familiar, «Ярлыки», «Файлы»
   places: () => ipcRenderer.invoke('places'),

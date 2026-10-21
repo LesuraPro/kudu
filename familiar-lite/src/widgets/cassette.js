@@ -70,9 +70,14 @@ Widget.define('cassette', (card) => {
 
   Widget.loop((t, dt) => {
     const { ctx, w, h } = Dot.fit(canvas)
+    // Кассета — тёмный «физический» предмет: её цвета не зависят от темы.
+    // Цвета темы — только для счётчика под ней
     const on = Dot.css('--text')
     const off = Dot.css('--dot-off')
     const accent = Dot.css('--accent')
+    const INK = '#f2f2f2'
+    const INK_MUTED = '#8b8b90'
+    const SCREW = 'rgba(255,255,255,0.12)'
     ctx.clearRect(0, 0, w, h)
 
     // Корпус
@@ -86,7 +91,7 @@ Widget.define('cassette', (card) => {
     ctx.strokeStyle = 'rgba(255,255,255,0.1)'
     ctx.stroke()
     // Винтики по углам
-    ctx.fillStyle = off
+    ctx.fillStyle = SCREW
     for (const [sx, sy] of [[10, 10], [bw - 10, 10], [10, bh - 10], [bw - 10, bh - 10]]) {
       ctx.beginPath()
       ctx.arc(bx + sx, by + sy, 3, 0, Math.PI * 2)
@@ -95,12 +100,12 @@ Widget.define('cassette', (card) => {
 
     // Наклейка: сторона «A» и название трека
     const m = Media.get()
-    ctx.fillStyle = on
+    ctx.fillStyle = INK
     ctx.font = `700 ${Math.round(bh * 0.16)}px ${fontFamily}`
     ctx.fillText('A', bx + 22, by + bh * 0.24)
     ctx.font = `600 ${Math.round(bh * 0.075)}px ${fontFamily}`
     ctx.fillText((Media.hasTrack() ? m.title : 'familiar mixtape').slice(0, 28), bx + 22 + bh * 0.16, by + bh * 0.16)
-    ctx.fillStyle = Dot.css('--muted')
+    ctx.fillStyle = INK_MUTED
     ctx.font = `${Math.round(bh * 0.06)}px ${fontFamily}`
     ctx.fillText((Media.hasTrack() ? m.artist : 'side a · 60 min').slice(0, 32), bx + 22 + bh * 0.16, by + bh * 0.25)
 
@@ -124,8 +129,8 @@ Widget.define('cassette', (card) => {
     angleL += dt * speed * 3 * (maxR / tapeL)
     angleR += dt * speed * 3 * (maxR / Math.max(tapeR, hubR))
     const cy = wy + wh / 2
-    reel(ctx, wx + ww * 0.25, cy, tapeL, hubR, angleL, on, off, accent)
-    reel(ctx, wx + ww * 0.75, cy, Math.max(tapeR, hubR), hubR, angleR, on, off, accent)
+    reel(ctx, wx + ww * 0.25, cy, tapeL, hubR, angleL, INK, SCREW, accent)
+    reel(ctx, wx + ww * 0.75, cy, Math.max(tapeR, hubR), hubR, angleR, INK, SCREW, accent)
 
     // Счётчик времени точками
     const c = Dot.fit(counter)
@@ -134,5 +139,6 @@ Widget.define('cassette', (card) => {
     const time = `${String(Math.floor(sec / 60)).padStart(2, '0')}:${String(sec % 60).padStart(2, '0')}`
     Dot.draw(c.ctx, time, 0, 0, { pitch: c.h / 7, on, off })
     Widget.text(state, Media.playing() ? 'PLAY ▸' : Media.hasTrack() ? 'PAUSE ‖' : 'STOP ■')
-  }, { fps: 24 })
+    // Бобины стоят (пауза) — счётчик и так не меняется, хватит 4 кадров
+  }, { fps: () => (Media.playing() || speed > 0.01 ? 24 : 4) })
 })

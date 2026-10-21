@@ -11,7 +11,15 @@
   --dot-off: rgba(255, 255, 255, 0.1);
   --accent: #ff2d2d;
   --hover: rgba(255, 255, 255, 0.07);
-  --shadow: 0 18px 50px rgba(0, 0, 0, 0.45);
+  /* Тень обязана помещаться в прозрачный запас вокруг карточки (8px у виджетов):
+     большую тень край окна обрезает, и вокруг карточки виден тёмный прямоугольник */
+  --shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+  /* Светлая кромка сверху — карточка читается как стекло */
+  --edge: inset 0 1px 0 rgba(255, 255, 255, 0.07);
+  /* Едва заметная точечная сетка на фоне карточек — подпись стиля Nothing */
+  --texture: radial-gradient(circle, rgba(255, 255, 255, 0.035) 1px, transparent 1.4px);
+  --radius-card: 22px;
+  --spring: cubic-bezier(0.34, 1.45, 0.5, 1);
   --mono: 'Cascadia Mono', 'JetBrains Mono', Consolas, ui-monospace, monospace;
   --sans: 'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif;
 }
@@ -26,7 +34,9 @@
     --muted: #6b6b70;
     --dot-off: rgba(0, 0, 0, 0.1);
     --hover: rgba(0, 0, 0, 0.06);
-    --shadow: 0 18px 50px rgba(0, 0, 0, 0.18);
+    --shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
+    --edge: inset 0 1px 0 rgba(255, 255, 255, 0.85);
+    --texture: radial-gradient(circle, rgba(0, 0, 0, 0.05) 1px, transparent 1.4px);
   }
 }
 
@@ -50,9 +60,9 @@ body, .glass, button, input {
   /* Без backdrop-filter: в прозрачном окне Electron он размывает только саму страницу
      (где за карточкой пусто), а не рабочий стол — эффекта не видно, а каждый кадр
      пересчитывает размытие. Поэтому фон просто плотнее */
-  background: var(--bg);
+  background: var(--texture) 0 0 / 12px 12px, var(--bg);
   border: 1px solid var(--border);
-  box-shadow: var(--shadow);
+  box-shadow: var(--edge), var(--shadow);
 }
 
 /* Подпись в стиле «● NOW PLAYING» */
@@ -104,6 +114,9 @@ button {
   border: none;
   cursor: pointer;
 }
+
+/* Игра на весь экран или экран заблокирован — бесконечные анимации стоят (см. power.js) */
+.power-paused *, .power-paused *::before, .power-paused *::after { animation-play-state: paused !important; }
 
 /* «Параметры → Специальные возможности → Эффекты анимации» выключены — не дёргаем интерфейс */
 @media (prefers-reduced-motion: reduce) {

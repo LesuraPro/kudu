@@ -262,5 +262,6 @@ Widget.define('tty', (card) => {
       ctx.fillStyle = colors[y][x]
       ctx.fillText(s, pad + x * cw, pad + y * ch)
     }
-  }, { fps: 15 })
+    // fetch почти статичный (таймер раз в секунду, курсор мигает раз в полсекунды) — 4 кадра
+  }, { fps: () => (scene === 'fetch' ? 4 : 15) })
 })

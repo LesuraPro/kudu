@@ -13,7 +13,8 @@ const {
   session,
   desktopCapturer,
   dialog,
-  nativeImage
+  nativeImage,
+  powerMonitor
 } = require('electron')
 const path = require('path')
 const fs = require('fs')
@@ -26,6 +27,7 @@ const { startStats, systemInfo, readBatteries } = require('./lib/system')
 const { listGames, gameCover } = require('./lib/games')
 const files = require('./lib/files')
 const profiles = require('./lib/profiles')
+const { createHost } = require('./lib/hosts')
 
 const isWin = process.platform === 'win32'
 // FAMILIAR_DEMO=1 — выдуманные трек, окна, игры и наушники (удобно проверять без Windows)
@@ -193,6 +195,7 @@ function onBridgeMessage(msg) {
     // Свои окна (док, виджеты) в списке не нужны
     const list = (msg.list ?? []).filter((w) => w.pid !== process.pid)
     openWindows = { list, foreground: msg.foreground }
+    updatePower({ fullscreen: !!msg.fullscreen })
     updateDock()
     updateForeground()
   } else if (msg.type === 'appbar' && menubarWin && !menubarWin.isDestroyed()) {
@@ -200,6 +203,34 @@ function onBridgeMessage(msg) {
     const [l, t, r, b] = msg.rect
     menubarWin.setBounds(screen.screenToDipRect(menubarWin, { x: l, y: t, width: r - l, height: b - t }))
   }
+}
+
+// ---------- Режим питания: когда анимации никому не нужны ----------
+// paused — игра или фильм на весь экран, экран заблокирован, компьютер уснул:
+//          виджеты всё равно не видно, анимации замирают;
+// saver  — работа от батареи или 3 минуты без мыши и клавиатуры: вдвое меньше кадров;
+// normal — всё как обычно.
+
+const power = { fullscreen: false, locked: false, idle: false, battery: false }
+let powerState = 'normal'
+
+function updatePower(patch) {
+  Object.assign(power, patch)
+  const next = power.fullscreen || power.locked ? 'paused' : power.battery || power.idle ? 'saver' : 'normal'
+  if (next === powerState) return
+  powerState = next
+  broadcast('power', powerState)
+}
+
+function watchPower() {
+  powerMonitor.on('lock-screen', () => updatePower({ locked: true }))
+  powerMonitor.on('unlock-screen', () => updatePower({ locked: false }))
+  powerMonitor.on('suspend', () => updatePower({ locked: true }))
+  powerMonitor.on('resume', () => updatePower({ locked: false }))
+  powerMonitor.on('on-battery', () => updatePower({ battery: true }))
+  powerMonitor.on('on-ac', () => updatePower({ battery: false }))
+  updatePower({ battery: powerMonitor.isOnBatteryPower() })
+  setInterval(() => updatePower({ idle: powerMonitor.getSystemIdleTime() >= 180 }), 15000)
 }
 
 // «C:\…\Telegram.exe» → «Telegram»
@@ -306,6 +337,11 @@ const webPreferences = {
 
 let dockWin, launcherWin, islandWin, menubarWin, settingsWin, filesWin
 const widgetWins = {}
+const widgetsCreating = new Set()
+// Два процесса на всё встроенное: один для «оболочки» (панель, остров, док, поиск),
+// второй для виджетов. Свои виджеты — в отдельных процессах: это чужой код,
+// и если он зависнет, остальное продолжит работать (см. lib/hosts.js)
+let shellHost, widgetHost
 let widgetsHidden = false
 
 const DOCK_HEIGHT = 120 // сколько места док занимает внизу (для раскладки виджетов)
@@ -313,8 +349,8 @@ const DOCK_STACK_HEIGHT = 470 // на время «веера» папки ок�
 const MENUBAR_HEIGHT = 30
 
 // Окно-«оверлей»: без рамки, прозрачное, поверх всех, клики насквозь
-function overlay(bounds, file) {
-  const win = new BrowserWindow({
+async function overlay(bounds, file) {
+  const win = await shellHost.open(file, null, {
     ...bounds,
     frame: false,
     transparent: true,
@@ -322,12 +358,10 @@ function overlay(bounds, file) {
     skipTaskbar: true,
     alwaysOnTop: true,
     hasShadow: false,
-    focusable: false,
-    webPreferences
+    focusable: false
   })
   win.setAlwaysOnTop(true, 'screen-saver')
   win.setIgnoreMouseEvents(true, { forward: true })
-  win.loadFile(path.join(SRC, file))
   return win
 }
 
@@ -341,23 +375,24 @@ function dockBounds() {
   return { x: workArea.x, y: workArea.y + workArea.height - height, width: workArea.width, height }
 }
 
-function createDock() {
-  dockWin = overlay(dockBounds(), 'dock.html')
+async function createDock() {
+  dockWin = await overlay(dockBounds(), 'dock.html')
 }
 
 // «Остров» сверху по центру: пилюля, которая раскрывается в плеер. Сидит прямо в верхней панели
-function createIsland() {
+async function createIsland() {
   const { bounds } = screen.getPrimaryDisplay()
   const width = 480
-  islandWin = overlay({ x: bounds.x + Math.round((bounds.width - width) / 2), y: bounds.y, width, height: 260 }, 'island.html')
+  islandWin = await overlay({ x: bounds.x + Math.round((bounds.width - width) / 2), y: bounds.y, width, height: 260 }, 'island.html')
   if (!config.island) islandWin.hide()
 }
 
 // Верхняя панель как в macOS. На Windows просим систему отдать ей полосу экрана
 // (AppBar), чтобы развёрнутые окна не заезжали под неё
-function createMenubar() {
+async function createMenubar() {
+  if (menubarWin) return
   const { bounds } = screen.getPrimaryDisplay()
-  menubarWin = new BrowserWindow({
+  menubarWin = await shellHost.open('menubar.html', null, {
     x: bounds.x,
     y: bounds.y,
     width: bounds.width,
@@ -368,11 +403,9 @@ function createMenubar() {
     skipTaskbar: true,
     alwaysOnTop: true,
     hasShadow: false,
-    focusable: false,
-    webPreferences
+    focusable: false
   })
   menubarWin.setAlwaysOnTop(true, 'screen-saver')
-  menubarWin.loadFile(path.join(SRC, 'menubar.html'))
   if (isWin) {
     menubarHwnd = menubarWin.getNativeWindowHandle().readBigUInt64LE(0).toString()
     const r = screen.dipToScreenRect(menubarWin, { x: bounds.x, y: bounds.y, width: bounds.width, height: MENUBAR_HEIGHT })
@@ -387,10 +420,10 @@ function destroyMenubar() {
   menubarWin = null
 }
 
-function createLauncher() {
+async function createLauncher() {
   const { workArea } = screen.getPrimaryDisplay()
   const width = 640
-  launcherWin = new BrowserWindow({
+  launcherWin = await shellHost.open('launcher.html', null, {
     x: workArea.x + Math.round((workArea.width - width) / 2),
     y: workArea.y + Math.round(workArea.height * 0.2),
     width,
@@ -400,18 +433,17 @@ function createLauncher() {
     resizable: false,
     skipTaskbar: true,
     alwaysOnTop: true,
-    show: false,
-    webPreferences
+    show: false
   })
-  launcherWin.loadFile(path.join(SRC, 'launcher.html'))
   launcherWin.on('blur', () => launcherWin.hide())
 }
 
 // Раскладка по умолчанию: колонки от правого края, пока влезает по высоте
 function defaultBounds(name) {
-  const { workArea } = screen.getPrimaryDisplay()
+  const { workArea, bounds } = screen.getPrimaryDisplay()
   const gap = 16
-  const top = workArea.y + 16
+  // Ниже верхней панели, даже если Windows не выделил под неё полосу (или это не Windows)
+  const top = Math.max(workArea.y, bounds.y + (config.menubar ? MENUBAR_HEIGHT : 0)) + 16
   let x = workArea.x + workArea.width - gap
   let y = top
   let colWidth = 0
@@ -429,10 +461,10 @@ function defaultBounds(name) {
   return { x: workArea.x + 40, y: top, width: 300, height: 300 }
 }
 
-function createWidget(name) {
+async function createWidget(name) {
   const def = allWidgets()[name]
   const bounds = config.widgets[name]?.bounds ?? defaultBounds(name)
-  const win = new BrowserWindow({
+  const options = {
     ...bounds,
     minWidth: def.minWidth ?? 200,
     minHeight: def.minHeight ?? 160,
@@ -441,12 +473,28 @@ function createWidget(name) {
     resizable: !!def.resizable,
     skipTaskbar: true,
     hasShadow: false,
-    show: false,
-    webPreferences
-  })
-  const query = def.file ? { type: path.basename(def.file, '.js'), custom: pathToFileURL(def.file).href } : { type: name }
-  win.loadFile(path.join(SRC, 'widget.html'), { query })
-  win.once('ready-to-show', () => !widgetsHidden && win.showInactive())
+    show: false
+  }
+  let win
+  widgetsCreating.add(name)
+  try {
+    if (def.file) {
+      // Свой виджет — в своём процессе
+      win = new BrowserWindow({ ...options, webPreferences })
+      win.loadFile(path.join(SRC, 'widget.html'), { query: { type: path.basename(def.file, '.js'), custom: pathToFileURL(def.file).href } })
+    } else {
+      win = await widgetHost.open('widget.html', { type: name }, options)
+    }
+  } finally {
+    widgetsCreating.delete(name)
+  }
+  // Пока окно создавалось, виджет успели выключить
+  if (!widgetEnabled(name)) return win.destroy()
+
+  let shown = false
+  const show = () => !shown && !win.isDestroyed() && !widgetsHidden && ((shown = true), win.showInactive())
+  win.once('ready-to-show', show)
+  setTimeout(show, 2000) // на случай, если ready-to-show уже прошёл
 
   // Запоминаем, куда виджет перетащили и какого размера сделали
   let timer
@@ -467,7 +515,7 @@ function createWidget(name) {
 function syncWidgets() {
   const all = allWidgets()
   for (const name of Object.keys(all)) {
-    if (widgetEnabled(name) && !widgetWins[name]) createWidget(name)
+    if (widgetEnabled(name) && !widgetWins[name] && !widgetsCreating.has(name)) createWidget(name)
     if (!widgetEnabled(name) && widgetWins[name]) widgetWins[name].close()
   }
   // Файл своего виджета удалили — закрываем окно
@@ -482,6 +530,7 @@ function closeAllWidgets() {
 }
 
 function toggleLauncher() {
+  if (!launcherWin) return
   if (launcherWin.isVisible()) return launcherWin.hide()
   launcherWin.show()
   launcherWin.focus()
@@ -637,7 +686,7 @@ function setSetting(key, value) {
     value ? islandWin.showInactive() : islandWin.hide()
   } else if (key === 'menubar') {
     config.menubar = !!value
-    if (value && !menubarWin) createMenubar()
+    if (value) createMenubar()
     if (!value) destroyMenubar()
   } else if (key === 'weather') {
     const { city, latitude, longitude } = value
@@ -756,6 +805,7 @@ function registerIpc() {
   ipcMain.handle('dock:get', () => dockState())
   ipcMain.handle('foreground:get', () => foreground)
   ipcMain.handle('stats:get', () => stats)
+  ipcMain.handle('power:get', () => powerState)
   ipcMain.handle('devices:get', () => devices)
   ipcMain.handle('cursor:get', () => screen.getCursorScreenPoint())
   ipcMain.on('window:focus', (_e, hwnds) => focusApp(hwnds))
@@ -778,7 +828,7 @@ function registerIpc() {
   })
   ipcMain.handle('dock:expand', (_e, on) => {
     dockExpanded = !!on
-    dockWin.setBounds(dockBounds())
+    dockWin?.setBounds(dockBounds())
   })
 
   ipcMain.handle('dock:pin', (_e, item) => pinItem(item))
@@ -932,6 +982,9 @@ if (!app.requestSingleInstanceLock()) {
     enableLoopbackAudio()
     bridge = startBridge({ app, isDemo, onMessage: onBridgeMessage })
 
+    watchPower()
+    shellHost = createHost(SRC, webPreferences)
+    widgetHost = createHost(SRC, webPreferences)
     if (config.menubar) createMenubar()
     createDock()
     createIsland()
@@ -939,7 +992,7 @@ if (!app.requestSingleInstanceLock()) {
     syncWidgets()
 
     // Панель заняла полосу сверху или поменялось разрешение — двигаем док к низу
-    screen.on('display-metrics-changed', () => dockWin.setBounds(dockBounds()))
+    screen.on('display-metrics-changed', () => dockWin?.setBounds(dockBounds()))
 
     startStats((s) => {
       stats = s

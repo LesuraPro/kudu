@@ -11,11 +11,13 @@
     define(name, mount) {
       if (name === type) mount(card)
     },
-    // Цикл анимации. fps — сколько кадров в секунду реально нужно виджету:
+    // Цикл анимации. fps — сколько кадров в секунду реально нужно виджету (число или функция —
+    // тогда частота подстраивается на ходу: в тишине визуализатору хватит 12 кадров, а не 30):
     // часам хватает 20, терминалу 20, визуализатору 40. Лишние кадры пропускаем.
     // Окно скрыто — не рисуем вовсе. «Уменьшить движение» в Windows — не больше 8 кадров
     loop(fn, { fps = 30 } = {}) {
-      Widget.schedule(fn, () => (reducedMotion.matches ? Math.min(fps, 8) : fps))
+      const getFps = typeof fps === 'function' ? fps : () => fps
+      Widget.schedule(fn, () => (reducedMotion.matches ? Math.min(getFps(), 8) : getFps()))
     },
     // Важно: между кадрами ждём таймером, а не requestAnimationFrame. Пока запрошен rAF,
     // Chromium 60 раз в секунду гоняет полный цикл кадра, даже если рисовать нечего —
@@ -29,7 +31,10 @@
         next()
       }
       const next = () => {
-        const wait = 1000 / getFps() - (performance.now() - last)
+        // Пауза (игра на весь экран и т.п.) — не рисуем, раз в секунду проверяем, не пора ли проснуться
+        const fps = getFps() * Power.factor()
+        if (!fps) return setTimeout(next, 1000)
+        const wait = 1000 / fps - (performance.now() - last)
         if (wait > 8) setTimeout(() => requestAnimationFrame(tick), wait - 4)
         else requestAnimationFrame(tick)
       }

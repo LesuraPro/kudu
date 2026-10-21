@@ -298,10 +298,40 @@ const pages = {
 
 // ---------- Навигация ----------
 
+// Иконки разделов 5×5 точек — в том же стиле, что и всё остальное
+const ICONS = {
+  profile: ['.###.', '.###.', '.....', '#####', '#####'],
+  appearance: ['.###.', '##..#', '##..#', '##..#', '.###.'],
+  widgets: ['##.##', '##.##', '.....', '##.##', '##.##'],
+  panel: ['#####', '.....', '.###.', '.....', '.....'],
+  weather: ['#.#.#', '.###.', '#####', '.###.', '#.#.#'],
+  windows: ['#####', '#.#.#', '#####', '#.#.#', '#####'],
+  keys: ['#####', '#.#.#', '#####', '.###.', '.....'],
+  about: ['..#..', '.....', '..#..', '..#..', '..#..']
+}
+
+function dotIcon(rows) {
+  const ns = 'http://www.w3.org/2000/svg'
+  const svg = document.createElementNS(ns, 'svg')
+  svg.setAttribute('viewBox', '0 0 5 5')
+  svg.setAttribute('class', 'icon')
+  rows.forEach((row, y) =>
+    [...row].forEach((c, x) => {
+      const dot = document.createElementNS(ns, 'circle')
+      dot.setAttribute('cx', x + 0.5)
+      dot.setAttribute('cy', y + 0.5)
+      dot.setAttribute('r', c === '#' ? 0.38 : 0.16)
+      dot.setAttribute('opacity', c === '#' ? 1 : 0.25)
+      svg.appendChild(dot)
+    })
+  )
+  return svg
+}
+
 let page = new URLSearchParams(location.search).get('page') || 'profile'
 
 for (const [key, p] of Object.entries(pages)) {
-  nav.append(el('button', { textContent: p.title, onclick: () => show(key) }))
+  nav.append(el('button', { onclick: () => show(key) }, dotIcon(ICONS[key]), p.title))
 }
 
 async function show(key, { quiet = false } = {}) {

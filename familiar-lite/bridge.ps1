@@ -1,7 +1,8 @@
 # Familiar Lite: bridge to Windows.
 # Prints JSON lines to stdout:
 #   {"type":"media", ...}    every 500 ms - what is playing (Windows SMTC)
-#   {"type":"windows", ...}  every second - open app windows and the foreground one
+#   {"type":"windows", ...}  open app windows, the foreground one and whether it is fullscreen
+#                            (checked every second, sent only when something changed)
 #   {"type":"appbar", ...}   reply to the appbar command
 # Reads commands from stdin, one per line:
 #   toggle | next | prev            - player controls
@@ -59,6 +60,35 @@ public static class FamiliarWin {
   }
 
   [DllImport("shell32.dll")] static extern UIntPtr SHAppBarMessage(uint msg, ref APPBARDATA data);
+
+  [StructLayout(LayoutKind.Sequential)]
+  struct MONITORINFO {
+    public int cbSize;
+    public RECT rcMonitor;
+    public RECT rcWork;
+    public uint dwFlags;
+  }
+
+  [DllImport("user32.dll")] static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
+  [DllImport("user32.dll")] static extern IntPtr MonitorFromWindow(IntPtr hWnd, uint flags);
+  [DllImport("user32.dll")] static extern bool GetMonitorInfo(IntPtr monitor, ref MONITORINFO info);
+  [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetClassName(IntPtr hWnd, StringBuilder s, int n);
+
+  // Foreground window covers the whole monitor: a game or a fullscreen video.
+  // A maximized window does not count - it only covers the work area (minus taskbar).
+  public static bool IsFullscreen(IntPtr h) {
+    if (h == IntPtr.Zero) return false;
+    StringBuilder cls = new StringBuilder(64);
+    GetClassName(h, cls, cls.Capacity);
+    string c = cls.ToString();
+    if (c == "Progman" || c == "WorkerW" || c == "Shell_TrayWnd") return false; // desktop and taskbar
+    RECT r;
+    if (!GetWindowRect(h, out r)) return false;
+    MONITORINFO mi = new MONITORINFO();
+    mi.cbSize = Marshal.SizeOf(typeof(MONITORINFO));
+    if (!GetMonitorInfo(MonitorFromWindow(h, 2), ref mi)) return false; // MONITOR_DEFAULTTONEAREST
+    return r.left <= mi.rcMonitor.left && r.top <= mi.rcMonitor.top && r.right >= mi.rcMonitor.right && r.bottom >= mi.rcMonitor.bottom;
+  }
 
   public class Win {
     public long hwnd;
@@ -325,7 +355,8 @@ while ($true) {
   if ($tick % 4 -eq 0) {
     try {
       $list = @([FamiliarWin]::List() | ForEach-Object { @{ hwnd = $_.hwnd; title = $_.title; path = $_.path; pid = $_.pid } })
-      $json = (@{ type = 'windows'; list = $list; foreground = [FamiliarWin]::GetForegroundWindow().ToInt64() } | ConvertTo-Json -Compress -Depth 4)
+      $fg = [FamiliarWin]::GetForegroundWindow()
+      $json = (@{ type = 'windows'; list = $list; foreground = $fg.ToInt64(); fullscreen = [FamiliarWin]::IsFullscreen($fg) } | ConvertTo-Json -Compress -Depth 4)
       if ($json -ne $lastWindows) {
         $lastWindows = $json
         [Console]::Out.WriteLine($json)

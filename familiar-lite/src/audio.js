@@ -7,26 +7,46 @@
   let level = 0
   let source = 'sim'
 
-  async function start() {
+  let ctx = null
+
+  // keepVideo — запасной путь: если без видео звук пропадает, захватываем как раньше
+  async function start(keepVideo = false) {
     try {
-      // Видео браузер требует обязательно — берём минимум и не используем
+      // Без видео браузер захват не начнёт — просим минимум
       const stream = await navigator.mediaDevices.getDisplayMedia({
         audio: true,
         video: { width: 1, height: 1, frameRate: 1 }
       })
-      if (!stream.getAudioTracks().length) throw new Error('нет звуковой дорожки')
-      const ctx = new AudioContext()
+      const audio = stream.getAudioTracks()[0]
+      if (!audio) throw new Error('нет звуковой дорожки')
+      // Видео нам не нужно: останавливаем, чтобы система не захватывала экран впустую
+      if (!keepVideo) for (const v of stream.getVideoTracks()) v.stop()
+      ctx = new AudioContext()
       analyser = ctx.createAnalyser()
       analyser.fftSize = 256
       analyser.smoothingTimeConstant = 0.75
       ctx.createMediaStreamSource(stream).connect(analyser)
       bins = new Uint8Array(analyser.frequencyBinCount)
       source = 'loopback'
+      audio.addEventListener('ended', () => {
+        analyser = null
+        source = 'sim'
+        ctx?.close()
+        // Звук оборвался вслед за видео — значит, этой версии Windows видео нужно
+        if (!keepVideo) start(true)
+      })
     } catch {
       analyser = null
       source = 'sim'
     }
   }
+
+  // В паузе (игра на весь экран, экран заблокирован) анализ звука не нужен
+  window.Power?.onChange((mode) => {
+    if (!ctx) return
+    if (mode === 'paused') ctx.suspend()
+    else ctx.resume()
+  })
 
   // Имитация: «бит» ~120 BPM плюс шум, если музыка играет; тихое дыхание, если нет
   function simulate(t) {

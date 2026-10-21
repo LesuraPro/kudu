@@ -82,7 +82,8 @@ function startDemo(onMessage) {
   const covers = [demoCover(200), demoCover(120)]
   let i = 0
   let position = 35
-  let playing = true
+  // FAMILIAR_DEMO=paused — начать с остановленной музыкой (проверить, как всё ведёт себя в тишине)
+  let playing = process.env.FAMILIAR_DEMO !== 'paused'
   let lastKey = null
   // Как настоящий мост: обложка приходит только при смене трека
   const media = () => {
