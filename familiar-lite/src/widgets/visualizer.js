@@ -162,7 +162,7 @@ Widget.define('visualizer', (card) => {
     const lvl = Sound.level()
     renderers[mode](t, lvl, Sound.spectrum, dt)
 
-    src.textContent = Sound.source() === 'loopback' ? 'LIVE AUDIO' : 'SIM'
+    Widget.text(src, Sound.source() === 'loopback' ? 'LIVE AUDIO' : 'SIM')
 
     ctx.clearRect(0, 0, w, h)
     const pitch = size / N
@@ -172,24 +172,17 @@ Widget.define('visualizer', (card) => {
     const on = Dot.css('--text')
     const off = Dot.css('--dot-off')
     const accent = Dot.css('--accent')
+    const dots = Dot.batch(ctx)
     for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
       // Только точки внутри круга — как «глаз» в Familiar
       if (Math.hypot(x - c, y - c) > c + 0.3) continue
       const b = Math.min(1, grid[y * N + x])
       const px = ox + x * pitch + pitch / 2
       const py = oy + y * pitch + pitch / 2
-      ctx.beginPath()
-      if (b < 0.06) {
-        ctx.fillStyle = off
-        ctx.arc(px, py, pitch * 0.2, 0, Math.PI * 2)
-      } else {
-        // Самые яркие точки на пиках громкости вспыхивают красным
-        ctx.fillStyle = b > 0.92 && lvl > 0.45 ? accent : on
-        ctx.globalAlpha = 0.25 + b * 0.75
-        ctx.arc(px, py, pitch * (0.2 + b * 0.18), 0, Math.PI * 2)
-      }
-      ctx.fill()
-      ctx.globalAlpha = 1
+      if (b < 0.06) dots.dot(px, py, pitch * 0.2, off)
+      // Самые яркие точки на пиках громкости вспыхивают красным
+      else dots.dot(px, py, pitch * (0.2 + b * 0.18), b > 0.92 && lvl > 0.45 ? accent : on, 0.25 + b * 0.75)
     }
-  })
+    dots.flush()
+  }, { fps: 30 })
 })

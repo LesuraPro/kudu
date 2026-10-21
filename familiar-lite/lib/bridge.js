@@ -55,17 +55,42 @@ function startBridge({ app, isDemo, onMessage }) {
 
 // ---------- Демо ----------
 
+// Обложка для демо: шумная градиентная картинка 300×300 — по размеру как настоящая из Spotify
+function demoCover(hue) {
+  const { nativeImage } = require('electron')
+  const size = 300
+  const buf = Buffer.alloc(size * size * 4)
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const i = (y * size + x) * 4
+      const n = Math.random() * 40
+      const k = (x + y) / (size * 2)
+      buf[i] = Math.min(255, 30 + k * 60 + n) // B
+      buf[i + 1] = Math.min(255, 20 + n * 0.5) // G
+      buf[i + 2] = Math.min(255, hue * (1 - k) + 40 + n) // R
+      buf[i + 3] = 255
+    }
+  }
+  return nativeImage.createFromBitmap(buf, { width: size, height: size }).toDataURL()
+}
+
 function startDemo(onMessage) {
   const tracks = [
     { title: 'zany', artist: 'DJ SENSX', album: 'zany', duration: 78 },
     { title: 'Кукла колдуна', artist: 'Король и Шут', album: 'Акустический альбом', duration: 203 }
   ]
+  const covers = [demoCover(200), demoCover(120)]
   let i = 0
   let position = 35
   let playing = true
+  let lastKey = null
+  // Как настоящий мост: обложка приходит только при смене трека
   const media = () => {
     const t = tracks[i]
-    onMessage({ type: 'media', status: playing ? 'playing' : 'paused', app: 'Spotify.exe', ...t, position, key: t.title, art: '' })
+    const msg = { type: 'media', status: playing ? 'playing' : 'paused', app: 'Spotify.exe', ...t, position, key: t.title }
+    if (t.title !== lastKey) msg.art = covers[i]
+    lastKey = t.title
+    onMessage(msg)
   }
 
   // Пара «открытых окон» из того, что точно есть на Linux

@@ -22,6 +22,7 @@ Widget.define('cassette', (card) => {
     pill.classList.toggle('live', Media.playing())
   })
 
+  const fontFamily = getComputedStyle(document.body).fontFamily
   let angleL = 0
   let angleR = 0
   // Скорость плавно разгоняется и тормозит, как у настоящего магнитофона
@@ -95,12 +96,12 @@ Widget.define('cassette', (card) => {
     // Наклейка: сторона «A» и название трека
     const m = Media.get()
     ctx.fillStyle = on
-    ctx.font = `700 ${Math.round(bh * 0.16)}px ${getComputedStyle(document.body).fontFamily}`
+    ctx.font = `700 ${Math.round(bh * 0.16)}px ${fontFamily}`
     ctx.fillText('A', bx + 22, by + bh * 0.24)
-    ctx.font = `600 ${Math.round(bh * 0.075)}px ${getComputedStyle(document.body).fontFamily}`
+    ctx.font = `600 ${Math.round(bh * 0.075)}px ${fontFamily}`
     ctx.fillText((Media.hasTrack() ? m.title : 'familiar mixtape').slice(0, 28), bx + 22 + bh * 0.16, by + bh * 0.16)
     ctx.fillStyle = Dot.css('--muted')
-    ctx.font = `${Math.round(bh * 0.06)}px ${getComputedStyle(document.body).fontFamily}`
+    ctx.font = `${Math.round(bh * 0.06)}px ${fontFamily}`
     ctx.fillText((Media.hasTrack() ? m.artist : 'side a · 60 min').slice(0, 32), bx + 22 + bh * 0.16, by + bh * 0.25)
 
     // Окошко с бобинами
@@ -132,6 +133,6 @@ Widget.define('cassette', (card) => {
     const sec = Math.floor(Media.position())
     const time = `${String(Math.floor(sec / 60)).padStart(2, '0')}:${String(sec % 60).padStart(2, '0')}`
     Dot.draw(c.ctx, time, 0, 0, { pitch: c.h / 7, on, off })
-    state.textContent = Media.playing() ? 'PLAY ▸' : Media.hasTrack() ? 'PAUSE ‖' : 'STOP ■'
-  })
+    Widget.text(state, Media.playing() ? 'PLAY ▸' : Media.hasTrack() ? 'PAUSE ‖' : 'STOP ■')
+  }, { fps: 24 })
 })

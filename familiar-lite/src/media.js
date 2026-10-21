@@ -4,8 +4,10 @@
   let state = { status: 'none' }
   const listeners = []
 
+  // Обложка приходит только при смене трека — в остальных сообщениях её нет
   function update(next) {
-    state = { ...next, localAt: performance.now() }
+    const art = 'art' in next ? next.art : next.key === state.key ? state.art : ''
+    state = { ...next, art, localAt: performance.now() }
     for (const cb of listeners) cb(state)
   }
 

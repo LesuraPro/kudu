@@ -104,25 +104,66 @@
   const width = (text) => bitmap(text)[0].length
 
   // Нарисовать текст точками. dot — диаметр точки, pitch — шаг сетки.
+  // Пакет точек: копим кружочки по цветам и заливаем каждый цвет одним вызовом fill().
+  // Сотни отдельных fill() на кадр — главная нагрузка точечных виджетов, так в разы дешевле.
+  // alpha округляем до 1/16, чтобы цветов-групп было немного
+  function batch(ctx) {
+    const groups = new Map()
+    return {
+      dot(x, y, r, color, alpha = 1) {
+        const a = Math.round(Math.max(0, Math.min(1, alpha)) * 16) / 16
+        if (a === 0) return
+        const key = color + '|' + a
+        let g = groups.get(key)
+        if (!g) groups.set(key, (g = { color, alpha: a, pts: [] }))
+        g.pts.push(x, y, r)
+      },
+      flush() {
+        for (const g of groups.values()) {
+          ctx.globalAlpha = g.alpha
+          ctx.fillStyle = g.color
+          ctx.beginPath()
+          for (let i = 0; i < g.pts.length; i += 3) {
+            ctx.moveTo(g.pts[i] + g.pts[i + 2], g.pts[i + 1])
+            ctx.arc(g.pts[i], g.pts[i + 1], g.pts[i + 2], 0, Math.PI * 2)
+          }
+          ctx.fill()
+        }
+        ctx.globalAlpha = 1
+        groups.clear()
+      }
+    }
+  }
+
   function draw(ctx, text, x, y, { pitch = 6, dot = pitch * 0.72, on = '#fff', off = null } = {}) {
     const rows = bitmap(text)
+    const b = batch(ctx)
     for (let r = 0; r < 7; r++) {
       for (let c = 0; c < rows[r].length; c++) {
         const lit = rows[r][c]
         if (!lit && !off) continue
-        ctx.fillStyle = lit ? on : off
-        ctx.beginPath()
-        ctx.arc(x + c * pitch + pitch / 2, y + r * pitch + pitch / 2, dot / 2, 0, Math.PI * 2)
-        ctx.fill()
+        b.dot(x + c * pitch + pitch / 2, y + r * pitch + pitch / 2, dot / 2, lit ? on : off)
       }
     }
+    b.flush()
     return rows[0].length * pitch
   }
 
   // Подготовить canvas под размер элемента с учётом масштаба экрана (чётко на 4K)
+  // Размер canvas запоминаем через ResizeObserver: getBoundingClientRect на каждом кадре
+  // заставлял браузер пересчитывать раскладку страницы
+  const sizes = new WeakMap()
+  const observer = new ResizeObserver((entries) => {
+    for (const e of entries) sizes.set(e.target, { width: e.contentRect.width, height: e.contentRect.height })
+  })
+
   function fit(canvas) {
     const dpr = window.devicePixelRatio || 1
-    const { width: w, height: h } = canvas.getBoundingClientRect()
+    if (!sizes.has(canvas)) {
+      sizes.set(canvas, canvas.getBoundingClientRect())
+      observer.observe(canvas)
+    }
+    const { width: w, height: h } = sizes.get(canvas)
     if (canvas.width !== Math.round(w * dpr) || canvas.height !== Math.round(h * dpr)) {
       canvas.width = Math.round(w * dpr)
       canvas.height = Math.round(h * dpr)
@@ -132,7 +173,14 @@
     return { ctx, w, h }
   }
 
-  const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim()
+  // Цвета темы. getComputedStyle — дорогой вызов, а виджеты спрашивают цвета на каждом кадре,
+  // поэтому запоминаем и сбрасываем, только когда тема поменялась
+  const colors = new Map()
+  const css = (name) => {
+    if (!colors.has(name)) colors.set(name, getComputedStyle(document.documentElement).getPropertyValue(name).trim())
+    return colors.get(name)
+  }
+  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => colors.clear())
 
-  window.Dot = { glyph, bitmap, width, draw, fit, css }
+  window.Dot = { glyph, bitmap, width, draw, batch, fit, css }
 })()

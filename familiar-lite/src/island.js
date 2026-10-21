@@ -35,6 +35,7 @@ $('next').addEventListener('click', () => Media.cmd('next'))
 const PLAY = 'M7 5v14l12-7z'
 const PAUSE = 'M6 5h4v14H6zM14 5h4v14h-4z'
 
+let shownArt = null
 Media.onChange((m) => {
   const has = Media.hasTrack()
   island.classList.toggle('playing', Media.playing())
@@ -44,11 +45,16 @@ Media.onChange((m) => {
   $('playIcon').setAttribute('d', Media.playing() ? PAUSE : PLAY)
   $('dur').textContent = Media.fmt(m.duration)
 
-  const art = has && m.art ? `url("${m.art}")` : ''
-  $('art').style.backgroundImage = art
-  $('artDots').style.display = art ? 'none' : ''
-  $('miniArt').style.backgroundImage = art
-  $('miniArt').classList.toggle('empty', !art)
+  // Обложку трогаем только при смене: иначе браузер заново декодирует картинку
+  const art = has && m.art ? m.art : ''
+  if (art !== shownArt) {
+    shownArt = art
+    const css = art ? `url("${art}")` : ''
+    $('art').style.backgroundImage = css
+    $('artDots').style.display = art ? 'none' : ''
+    $('miniArt').style.backgroundImage = css
+    $('miniArt').classList.toggle('empty', !art)
+  }
 })
 
 // ---------- Нижняя строка ----------
@@ -121,48 +127,111 @@ $('theme').addEventListener('click', (e) => {
 
 const mini = $('miniDots')
 const artDots = $('artDots')
+const PITCH = 2
+const ON = '#f2f2f2'
+const OFF = 'rgba(255,255,255,0.08)'
+
+// Нарисовать что-то один раз в отдельный canvas, чтобы потом только копировать картинкой
+function offscreen(width, height, draw) {
+  const dpr = window.devicePixelRatio || 1
+  const c = document.createElement('canvas')
+  c.width = Math.ceil(width * dpr)
+  c.height = Math.ceil(height * dpr)
+  const ctx = c.getContext('2d')
+  ctx.scale(dpr, dpr)
+  draw(ctx)
+  return c
+}
+
+// Строка трека и фон из погасших точек рисуются один раз на трек / размер,
+// а на каждом кадре только сдвигаются — вместо сотен кружочков за кадр
+let strip = null
+function textStrip(text) {
+  if (strip?.text !== text) {
+    const width = Dot.width(text) * PITCH
+    strip = { text, width, canvas: offscreen(width, 7 * PITCH, (ctx) => Dot.draw(ctx, text, 0, 0, { pitch: PITCH, on: ON })) }
+  }
+  return strip
+}
+
+let backdrop = null
+function dotsBackdrop(width) {
+  if (backdrop?.width !== width) {
+    backdrop = {
+      width,
+      canvas: offscreen(width, 7 * PITCH, (ctx) => {
+        ctx.fillStyle = OFF
+        for (let x = 0; x < width; x += PITCH) for (let y = 0; y < 7; y++) {
+          ctx.beginPath()
+          ctx.arc(x + PITCH / 2, y * PITCH + PITCH / 2, PITCH * 0.36, 0, Math.PI * 2)
+          ctx.fill()
+        }
+      })
+    }
+  }
+  return backdrop
+}
+
 let scroll = 0
-let last = performance.now()
+let lastDraw = 0
+let shownTime = ''
+
+// Пока остров свёрнут и музыки нет, показывать нечего, кроме часов — 2 кадра в секунду хватит.
+// Между кадрами ждём таймером: висящий requestAnimationFrame заставляет Chromium
+// крутить полный цикл кадра 60 раз в секунду, даже если рисовать нечего
+function scheduleFrame() {
+  const fps = island.classList.contains('open') || Media.playing() ? 30 : 2
+  const wait = 1000 / fps - (performance.now() - lastDraw)
+  if (wait > 8) setTimeout(() => requestAnimationFrame(frame), wait - 4)
+  else requestAnimationFrame(frame)
+}
 
 function frame(now) {
-  const dt = (now - last) / 1000
-  last = now
+  const dt = Math.min(0.1, (now - lastDraw) / 1000)
+  lastDraw = now
+  draw(now, dt)
+  scheduleFrame()
+}
+
+function draw(now, dt) {
+  const open = island.classList.contains('open')
+  const playing = Media.playing()
 
   // Свёрнутый остров: если играет музыка — бегущая строка, иначе часы
   const { ctx, w, h } = Dot.fit(mini)
-  ctx.clearRect(0, 0, w, h)
-  const pitch = 2
-  const on = '#f2f2f2'
-  const off = 'rgba(255,255,255,0.08)'
-  if (Media.playing()) {
+  if (playing) {
     const m = Media.get()
-    const text = `${m.title} — ${m.artist}   `.toUpperCase()
-    const tw = Dot.width(text) * pitch
-    scroll = (scroll + dt * 30) % tw
-    // Фон из погасших точек, поверх — текст дважды, чтобы строка была бесконечной
-    for (let x = 0; x < w; x += pitch) for (let y = 0; y < 7; y++) {
-      ctx.fillStyle = off
-      ctx.beginPath()
-      ctx.arc(x + pitch / 2, y * pitch + pitch / 2, pitch * 0.36, 0, Math.PI * 2)
-      ctx.fill()
-    }
-    Dot.draw(ctx, text, -scroll, 0, { pitch, on })
-    Dot.draw(ctx, text, tw - scroll, 0, { pitch, on })
+    const s = textStrip(`${m.title} — ${m.artist}   `.toUpperCase())
+    scroll = (scroll + dt * 30) % s.width
+    ctx.clearRect(0, 0, w, h)
+    ctx.drawImage(dotsBackdrop(Math.ceil(w)).canvas, 0, 0, Math.ceil(w), 7 * PITCH)
+    // Текст дважды подряд — строка получается бесконечной
+    ctx.drawImage(s.canvas, -scroll, 0, s.width, 7 * PITCH)
+    ctx.drawImage(s.canvas, s.width - scroll, 0, s.width, 7 * PITCH)
+    shownTime = ''
   } else {
     const time = new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
-    const tw = Dot.width(time) * pitch
-    Dot.draw(ctx, time, (w - tw) / 2, 0, { pitch, on, off })
+    // Часы перерисовываем раз в минуту (или если canvas поменял размер и очистился)
+    if (time !== shownTime || mini.dataset.w !== String(w)) {
+      shownTime = time
+      mini.dataset.w = String(w)
+      ctx.clearRect(0, 0, w, h)
+      const tw = Dot.width(time) * PITCH
+      Dot.draw(ctx, time, (w - tw) / 2, 0, { pitch: PITCH, on: ON, off: OFF })
+    }
   }
 
+  if (!open) return
+
   // Заглушка вместо обложки: пульсирующая точечная сетка
-  if (artDots.style.display !== 'none' && island.classList.contains('open')) {
+  if (artDots.style.display !== 'none') {
     const a = Dot.fit(artDots)
     a.ctx.clearRect(0, 0, a.w, a.h)
     const n = 7
     const p = a.w / n
     for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
       const d = Math.hypot(x - 3, y - 3)
-      const b = Media.playing() ? 0.5 + 0.5 * Math.sin(now / 250 - d * 1.3) : d < 1 ? 1 : 0.15
+      const b = playing ? 0.5 + 0.5 * Math.sin(now / 250 - d * 1.3) : d < 1 ? 1 : 0.15
       a.ctx.fillStyle = d < 0.5 ? Dot.css('--accent') : `rgba(255,255,255,${0.1 + b * 0.8})`
       a.ctx.beginPath()
       a.ctx.arc(x * p + p / 2, y * p + p / 2, p * 0.32, 0, Math.PI * 2)
@@ -171,11 +240,8 @@ function frame(now) {
   }
 
   // Прогресс трека
-  if (island.classList.contains('open')) {
-    $('fill').style.width = `${Media.progress() * 100}%`
-    $('pos').textContent = Media.fmt(Media.position())
-  }
-
-  requestAnimationFrame(frame)
+  $('fill').style.width = `${Media.progress() * 100}%`
+  const pos = Media.fmt(Media.position())
+  if ($('pos').textContent !== pos) $('pos').textContent = pos
 }
-requestAnimationFrame(frame)
+scheduleFrame()

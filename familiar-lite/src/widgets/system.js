@@ -96,9 +96,11 @@ Widget.define('system', (card) => {
     }
 
     const gb = (b) => (b / 1024 ** 3).toFixed(1)
-    foot.textContent =
+    Widget.text(
+      foot,
       mode === 'mem' && memTotal
         ? `${gb(shown * memTotal)} / ${gb(memTotal)} GB · 2 мин`
         : `пик ${Math.round(Math.max(0, ...data) * 100)}% · 2 мин`
-  })
+    )
+  }, { fps: 10 })
 })

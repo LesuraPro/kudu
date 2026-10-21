@@ -28,6 +28,10 @@
       .row .kind { font-size: 9px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--muted); }
       .row.active .kind { color: var(--accent); }
       #hint { padding: 8px 18px 12px; font-size: 10px; letter-spacing: 0.06em; color: var(--muted); }
+      .row mark { background: none; color: var(--accent); }
+      .empty { padding: 14px 18px; font-size: 12px; color: var(--muted); }
+      #box.show { animation: open 0.32s cubic-bezier(0.34, 1.4, 0.5, 1); }
+      @keyframes open { from { opacity: 0; transform: translateY(-8px) scale(0.97); } }
     </style>
   </head>
   <body>

@@ -2,9 +2,10 @@
    точечные (dot-matrix) цифры и один красный акцент.
    Тема переключается через nativeTheme в main.js, окна реагируют на prefers-color-scheme. */
 :root {
-  --bg: rgba(10, 10, 12, 0.86);
+  --bg: rgba(10, 10, 12, 0.9);
   --bg-strong: rgba(16, 16, 18, 0.97);
   --border: rgba(255, 255, 255, 0.09);
+  --border-strong: rgba(255, 255, 255, 0.2);
   --text: #f2f2f2;
   --muted: #8b8b90;
   --dot-off: rgba(255, 255, 255, 0.1);
@@ -17,9 +18,10 @@
 
 @media (prefers-color-scheme: light) {
   :root {
-    --bg: rgba(240, 240, 240, 0.9);
+    --bg: rgba(240, 240, 240, 0.93);
     --bg-strong: rgba(250, 250, 250, 0.97);
     --border: rgba(0, 0, 0, 0.08);
+    --border-strong: rgba(0, 0, 0, 0.2);
     --text: #111;
     --muted: #6b6b70;
     --dot-off: rgba(0, 0, 0, 0.1);
@@ -39,9 +41,16 @@ html, body {
   overflow: hidden;
 }
 
+/* Смена темы — плавно, а не рывком */
+body, .glass, button, input {
+  transition: background-color 0.3s, color 0.3s, border-color 0.3s;
+}
+
 .glass {
+  /* Без backdrop-filter: в прозрачном окне Electron он размывает только саму страницу
+     (где за карточкой пусто), а не рабочий стол — эффекта не видно, а каждый кадр
+     пересчитывает размытие. Поэтому фон просто плотнее */
   background: var(--bg);
-  backdrop-filter: blur(24px) saturate(160%);
   border: 1px solid var(--border);
   box-shadow: var(--shadow);
 }
@@ -94,4 +103,13 @@ button {
   background: none;
   border: none;
   cursor: pointer;
+}
+
+/* «Параметры → Специальные возможности → Эффекты анимации» выключены — не дёргаем интерфейс */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

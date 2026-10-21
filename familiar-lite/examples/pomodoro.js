@@ -8,7 +8,10 @@
 //
 // Что доступно внутри:
 //   Widget.define(name, (card) => {...})  — card: пустой блок виджета, клади туда что угодно
-//   Widget.loop((t, dt) => {...})         — анимация: t — секунды, dt — сколько прошло с прошлого кадра
+//   Widget.loop((t, dt) => {...}, { fps }) — анимация: t — секунды, dt — сколько прошло с прошлого кадра;
+//                                           fps — сколько кадров в секунду нужно (по умолчанию 30, меньше — дешевле)
+//   Widget.text(el, text)                 — записать текст в элемент, только если он поменялся
+//   Dot.batch(ctx)                        — много точек разом: .dot(x, y, r, цвет), потом .flush()
 //   Widget.el(tag, className, text)       — быстро создать элемент
 //   Dot.draw(ctx, text, x, y, { pitch })  — текст точечным шрифтом на canvas, Dot.fit(canvas) — подготовить canvas
 //   Dot.css('--accent')                   — цвета темы: --text, --muted, --accent, --dot-off
@@ -61,7 +64,7 @@ Widget.define('pomodoro', (card) => {
         })
       }
     }
-    label.textContent = phase === 'work' ? 'Помодоро · работа' : 'Помодоро · отдых'
+    Widget.text(label, phase === 'work' ? 'Помодоро · работа' : 'Помодоро · отдых')
 
     const { ctx, w, h } = Dot.fit(canvas)
     ctx.clearRect(0, 0, w, h)
@@ -89,5 +92,5 @@ Widget.define('pomodoro', (card) => {
     // На паузе цифры мигают
     const blink = !running && left < total && Math.floor(t * 2) % 2
     Dot.draw(ctx, text, cx - (Dot.width(text) * pitch) / 2, cy - 3.5 * pitch, { pitch, on: blink ? off : on, off })
-  })
+  }, { fps: 10 })
 })

@@ -49,7 +49,6 @@
         position: absolute;
         bottom: calc(100% + 10px);
         left: 50%;
-        transform: translateX(-50%);
         white-space: nowrap;
         padding: 4px 10px;
         font-size: 10px;
@@ -60,9 +59,10 @@
         border: 1px solid var(--border);
         opacity: 0;
         pointer-events: none;
-        transition: opacity 0.1s;
+        transform: translate(-50%, 4px);
+        transition: opacity 0.15s, transform 0.25s cubic-bezier(0.34, 1.45, 0.5, 1);
       }
-      .item:hover .tip { opacity: 1; }
+      .item:hover .tip { opacity: 1; transform: translate(-50%, 0); }
       .item.drop-target { outline: 2px dashed var(--accent); outline-offset: 2px; }
       .divider { width: 1px; align-self: stretch; margin: 6px 4px; background: var(--border); }
       .item.system .letter { background: var(--hover); font-size: 20px; }

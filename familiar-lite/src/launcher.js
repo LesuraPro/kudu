@@ -29,27 +29,44 @@ function search() {
   render()
 }
 
+// Название с подсвеченным совпадением: «Te[ле]грам»
+function highlighted(name, query) {
+  const el = document.createElement('div')
+  el.className = 'name'
+  const i = query ? name.toLowerCase().indexOf(query) : -1
+  if (i < 0) {
+    el.textContent = name
+    return el
+  }
+  const mark = document.createElement('mark')
+  mark.textContent = name.slice(i, i + query.length)
+  el.append(name.slice(0, i), mark, name.slice(i + query.length))
+  return el
+}
+
 function render() {
+  const query = q.value.trim().toLowerCase()
+  if (query && !results.length) {
+    const empty = document.createElement('div')
+    empty.className = 'empty'
+    empty.textContent = `Ничего не нашлось по «${q.value.trim()}»`
+    list.replaceChildren(empty)
+    return
+  }
   list.replaceChildren(
     ...results.map((it, i) => {
       const row = document.createElement('div')
       row.className = 'row' + (i === active ? ' active' : '')
       const ph = document.createElement('div')
       ph.className = 'ph'
-      const name = document.createElement('div')
-      name.className = 'name'
-      name.textContent = it.name
+      const name = highlighted(it.name, query)
       const kind = document.createElement('div')
       kind.className = 'kind'
       kind.textContent = it.store ? `Игра · ${it.store}` : it.isFile ? 'Файл' : 'Приложение'
       row.append(ph, name, kind)
       row.addEventListener('click', () => open(it))
-      row.addEventListener('mousemove', () => {
-        if (active !== i) {
-          active = i
-          render()
-        }
-      })
+      // Подсветку при наведении переключаем классом, не перестраивая весь список
+      row.addEventListener('mousemove', () => setActive(i, false))
       loadIcon(it).then((src) => {
         if (!src) return
         const img = document.createElement('img')
@@ -60,6 +77,14 @@ function render() {
     })
   )
   list.children[active]?.scrollIntoView({ block: 'nearest' })
+}
+
+function setActive(i, scroll = true) {
+  if (i === active) return
+  list.children[active]?.classList.remove('active')
+  active = i
+  list.children[active]?.classList.add('active')
+  if (scroll) list.children[active]?.scrollIntoView({ block: 'nearest' })
 }
 
 // У игр вместо иконки — обложка из кэша Steam
@@ -79,8 +104,7 @@ q.addEventListener('keydown', (e) => {
   if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
     e.preventDefault()
     if (!results.length) return
-    active = (active + (e.key === 'ArrowDown' ? 1 : -1) + results.length) % results.length
-    render()
+    setActive((active + (e.key === 'ArrowDown' ? 1 : -1) + results.length) % results.length)
   }
   if (e.key === 'Enter' && results[active]) {
     if (e.ctrlKey) {
@@ -97,11 +121,17 @@ async function reload() {
   items = [...apps, ...games, ...files]
 }
 
+const box = document.getElementById('box')
+
 window.familiar.onLauncherOpened(async () => {
   q.value = ''
   results = []
   render()
   q.focus()
+  // Перезапуск анимации появления
+  box.classList.remove('show')
+  void box.offsetWidth
+  box.classList.add('show')
   await reload()
 })
 

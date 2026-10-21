@@ -4,22 +4,40 @@
   const params = new URLSearchParams(location.search)
   const type = params.get('type')
   const card = document.getElementById('card')
+  const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)')
   card.classList.add(`w-${type.replace(/[^\w-]+/g, '-')}`)
 
   window.Widget = {
     define(name, mount) {
       if (name === type) mount(card)
     },
-    // Цикл анимации, который ставится на паузу, когда окно скрыто
-    loop(fn) {
+    // Цикл анимации. fps — сколько кадров в секунду реально нужно виджету:
+    // часам хватает 20, терминалу 20, визуализатору 40. Лишние кадры пропускаем.
+    // Окно скрыто — не рисуем вовсе. «Уменьшить движение» в Windows — не больше 8 кадров
+    loop(fn, { fps = 30 } = {}) {
+      Widget.schedule(fn, () => (reducedMotion.matches ? Math.min(fps, 8) : fps))
+    },
+    // Важно: между кадрами ждём таймером, а не requestAnimationFrame. Пока запрошен rAF,
+    // Chromium 60 раз в секунду гоняет полный цикл кадра, даже если рисовать нечего —
+    // так «4 кадра в секунду» стоили бы как 60
+    schedule(fn, getFps) {
       let last = performance.now()
       const tick = (now) => {
         const dt = Math.min(0.1, (now - last) / 1000)
         last = now
         if (!document.hidden) fn(now / 1000, dt)
-        requestAnimationFrame(tick)
+        next()
       }
-      requestAnimationFrame(tick)
+      const next = () => {
+        const wait = 1000 / getFps() - (performance.now() - last)
+        if (wait > 8) setTimeout(() => requestAnimationFrame(tick), wait - 4)
+        else requestAnimationFrame(tick)
+      }
+      next()
+    },
+    // Записать текст, только если он поменялся: запись в DOM на каждом кадре — лишняя работа
+    text(node, value) {
+      if (node.textContent !== value) node.textContent = value
     },
     el(tag, className, text) {
       const e = document.createElement(tag)

@@ -293,6 +293,9 @@ function Invoke-BridgeCommand($line) {
 $stdin = New-Object System.IO.StreamReader([Console]::OpenStandardInput())
 $pending = $stdin.ReadLineAsync()
 $tick = 0
+$mediaStatus = 'none'
+$mediaNow = $true
+$lastWindows = ''
 
 while ($true) {
   while ($pending.IsCompleted) {
@@ -303,14 +306,31 @@ while ($true) {
       exit
     }
     try { Invoke-BridgeCommand $line } catch { [Console]::Error.WriteLine("command '$line' failed: $_") }
+    # After a play/pause/next click, report the new state right away
+    $mediaNow = $true
     $pending = $stdin.ReadLineAsync()
   }
 
-  if ($tick % 2 -eq 0) { Send (Get-MediaState) }
+  # Media: twice a second while playing, every 2 seconds when paused or silent
+  $mediaEvery = 8
+  if ($mediaStatus -eq 'playing') { $mediaEvery = 2 }
+  if ($mediaNow -or $tick % $mediaEvery -eq 0) {
+    $m = Get-MediaState
+    $mediaStatus = $m.status
+    $mediaNow = $false
+    Send $m
+  }
+
+  # Windows: checked every second, sent only when something changed
   if ($tick % 4 -eq 0) {
     try {
       $list = @([FamiliarWin]::List() | ForEach-Object { @{ hwnd = $_.hwnd; title = $_.title; path = $_.path; pid = $_.pid } })
-      Send @{ type = 'windows'; list = $list; foreground = [FamiliarWin]::GetForegroundWindow().ToInt64() }
+      $json = (@{ type = 'windows'; list = $list; foreground = [FamiliarWin]::GetForegroundWindow().ToInt64() } | ConvertTo-Json -Compress -Depth 4)
+      if ($json -ne $lastWindows) {
+        $lastWindows = $json
+        [Console]::Out.WriteLine($json)
+        [Console]::Out.Flush()
+      }
     } catch {
       [Console]::Error.WriteLine("windows failed: $_")
     }

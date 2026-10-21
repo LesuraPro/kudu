@@ -35,17 +35,19 @@ const isDemo = !!process.env.FAMILIAR_DEMO
 
 // Каждый виджет — отдельное окно, которое можно таскать по рабочему столу.
 // Порядок здесь = порядок раскладки по умолчанию (справа налево, сверху вниз).
+// Каждое окно — отдельный процесс (~30–40 МБ), поэтому сразу включены только
+// основные (on: true); остальные включаются в настройках одним щелчком
 const WIDGETS = {
-  clock: { title: 'Часы', width: 230, height: 250 },
-  weather: { title: 'Погода', width: 230, height: 180 },
+  clock: { title: 'Часы', width: 230, height: 250, on: true },
+  weather: { title: 'Погода', width: 230, height: 180, on: true },
+  calendar: { title: 'Календарь', width: 300, height: 380, on: true },
+  visualizer: { title: 'Визуализатор', width: 340, height: 400, resizable: true, minWidth: 140, minHeight: 140, on: true },
+  eyes: { title: 'Глазки', width: 200, height: 200, resizable: true, minWidth: 110, minHeight: 110, on: true },
+  shortcuts: { title: 'Ярлыки', width: 300, height: 260, resizable: true, on: true },
   reminders: { title: 'Напоминания', width: 230, height: 260 },
-  visualizer: { title: 'Визуализатор', width: 340, height: 400, resizable: true, minWidth: 140, minHeight: 140 },
   cassette: { title: 'Кассета', width: 340, height: 280 },
-  eyes: { title: 'Глазки', width: 200, height: 200, resizable: true, minWidth: 110, minHeight: 110 },
   system: { title: 'Нагрузка', width: 320, height: 210, resizable: true },
   games: { title: 'Игры', width: 420, height: 320, resizable: true },
-  calendar: { title: 'Календарь', width: 300, height: 380 },
-  shortcuts: { title: 'Ярлыки', width: 300, height: 260, resizable: true },
   tty: { title: 'Терминал familiar-tty', width: 640, height: 420, resizable: true }
 }
 
@@ -61,7 +63,13 @@ function seedCustomWidgets() {
   }
 }
 
+// Папку своих виджетов читаем один раз; «Обновить свои виджеты» сбрасывает кэш
+let customCache = null
 function customWidgets() {
+  return (customCache ??= readCustomWidgets())
+}
+
+function readCustomWidgets() {
   let files = []
   try {
     files = fs.readdirSync(customDir()).filter((f) => f.endsWith('.js'))
@@ -116,17 +124,29 @@ function loadConfig() {
 
 let config
 
-function saveConfig() {
+// Окна узнают об изменениях сразу, а на диск пишем не чаще раза в 300 мс:
+// перетаскивание виджета или набор текста иначе дёргали бы диск десятки раз.
+// quiet — изменение, которое окнам не интересно (например, координаты виджета)
+let writeTimer = null
+function saveConfig({ quiet = false } = {}) {
+  clearTimeout(writeTimer)
+  writeTimer = setTimeout(writeConfigNow, 300)
+  if (!quiet) broadcast('config-changed', config)
+}
+
+function writeConfigNow() {
+  clearTimeout(writeTimer)
+  writeTimer = null
   fs.mkdirSync(path.dirname(configPath()), { recursive: true })
   fs.writeFileSync(configPath(), JSON.stringify(config, null, 2))
-  broadcast('config-changed', config)
 }
 
 function broadcast(channel, data) {
   for (const w of BrowserWindow.getAllWindows()) if (!w.isDestroyed()) w.webContents.send(channel, data)
 }
 
-const widgetEnabled = (name) => config.widgets[name]?.enabled !== false
+// Включён ли виджет: как решил пользователь, а если ещё не решал — как задумано по умолчанию
+const widgetEnabled = (name) => config.widgets[name]?.enabled ?? !!allWidgets()[name]?.on
 
 // ---------- Запуск ----------
 
@@ -156,9 +176,19 @@ let menubarHwnd = null
 function onBridgeMessage(msg) {
   if (msg.type === 'media') {
     // Обложку мост присылает только при смене трека — сохраняем её
-    if (!('art' in msg) && msg.key === media.key) msg.art = media.art
+    const artChanged = 'art' in msg
+    if (!artChanged && msg.key === media.key) msg.art = media.art
+    const prev = media
+    msg.at = Date.now()
     media = msg
-    broadcast('media', media)
+    // Окна сами досчитывают позицию трека, поэтому рассылаем, только если что-то
+    // поменялось по-настоящему: трек, пауза или перемотка. Обложку (сотни КБ) —
+    // только когда она новая
+    const expected = prev.position + (prev.status === 'playing' ? (msg.at - prev.at) / 1000 : 0)
+    const same = prev.key === msg.key && prev.status === msg.status && prev.title === msg.title && Math.abs(msg.position - expected) < 2
+    if (same && !artChanged) return
+    const { art, ...light } = msg
+    broadcast('media', artChanged ? msg : light)
   } else if (msg.type === 'windows') {
     // Свои окна (док, виджеты) в списке не нужны
     const list = (msg.list ?? []).filter((w) => w.pid !== process.pid)
@@ -269,7 +299,9 @@ const webPreferences = {
   preload: path.join(__dirname, 'preload.js'),
   contextIsolation: true,
   sandbox: true,
-  backgroundThrottling: false // анимации не должны замирать, когда окно не в фокусе
+  // Окно полностью закрыто другими или свёрнуто — Chromium перестаёт его рисовать.
+  // На анимации видимых, но не активных окон это не влияет
+  backgroundThrottling: true
 }
 
 let dockWin, launcherWin, islandWin, menubarWin, settingsWin, filesWin
@@ -277,7 +309,7 @@ const widgetWins = {}
 let widgetsHidden = false
 
 const DOCK_HEIGHT = 120 // сколько места док занимает внизу (для раскладки виджетов)
-const DOCK_WINDOW_HEIGHT = 470 // окно выше: над доком раскрывается «веер» папки
+const DOCK_STACK_HEIGHT = 470 // на время «веера» папки окно дока вырастает вверх
 const MENUBAR_HEIGHT = 30
 
 // Окно-«оверлей»: без рамки, прозрачное, поверх всех, клики насквозь
@@ -299,9 +331,14 @@ function overlay(bounds, file) {
   return win
 }
 
+let dockExpanded = false
+
 function dockBounds() {
   const { workArea } = screen.getPrimaryDisplay()
-  return { x: workArea.x, y: workArea.y + workArea.height - DOCK_WINDOW_HEIGHT, width: workArea.width, height: DOCK_WINDOW_HEIGHT }
+  // Обычно окно дока не выше самого дока: меньше прозрачной площади поверх экрана —
+  // меньше событий мыши, которые ему приходится пропускать насквозь
+  const height = dockExpanded ? DOCK_STACK_HEIGHT : DOCK_HEIGHT
+  return { x: workArea.x, y: workArea.y + workArea.height - height, width: workArea.width, height }
 }
 
 function createDock() {
@@ -418,7 +455,7 @@ function createWidget(name) {
     timer = setTimeout(() => {
       if (win.isDestroyed()) return
       config.widgets[name] = { ...config.widgets[name], bounds: win.getBounds() }
-      saveConfig()
+      saveConfig({ quiet: true })
     }, 400)
   }
   win.on('moved', remember)
@@ -638,7 +675,7 @@ const menus = {
     { label: 'Показать/скрыть все (Alt+W)', click: toggleWidgets },
     { label: 'Вернуть раскладку по умолчанию', click: resetLayout },
     { label: 'Папка своих виджетов…', click: () => shell.openPath(customDir()) },
-    { label: 'Обновить свои виджеты', click: syncWidgets }
+    { label: 'Обновить свои виджеты', click: () => ((customCache = null), syncWidgets()) }
   ],
   wallpaper: () => [
     ...Object.entries(WALLPAPERS).map(([style, label]) => ({
@@ -693,15 +730,22 @@ function fullMenu(index, running) {
 // ---------- IPC: что окна могут попросить у главного процесса ----------
 
 let stats = { cpu: 0, mem: 0 }
+let filesCache = null
 let devices = []
 
 function registerIpc() {
   ipcMain.handle('config:get', () => config)
   ipcMain.handle('apps:list', () => listApps(app))
   // Для поиска: рабочий стол, «Документы» и всё из папки Familiar
+  // Обходить папки при каждом Alt+Space незачем: список живёт 30 секунд
+  // или до первого изменения в папке Familiar
   ipcMain.handle('files:list', () => {
-    const seen = new Set()
-    return [...files.searchFamiliar(app), ...listFiles(app)].filter((f) => !seen.has(f.path) && seen.add(f.path))
+    if (!filesCache || Date.now() - filesCache.at > 30000) {
+      const seen = new Set()
+      const list = [...files.searchFamiliar(app), ...listFiles(app)].filter((f) => !seen.has(f.path) && seen.add(f.path))
+      filesCache = { at: Date.now(), list }
+    }
+    return filesCache.list
   })
   ipcMain.handle('games:list', () => listGames(isDemo))
   ipcMain.handle('game:cover', (_e, id) => gameCover(listGames(isDemo).find((g) => g.id === id)))
@@ -717,13 +761,24 @@ function registerIpc() {
   ipcMain.on('window:focus', (_e, hwnds) => focusApp(hwnds))
   ipcMain.on('theme:toggle', () => setTheme(nativeTheme.shouldUseDarkColors ? 'light' : 'dark'))
 
-  ipcMain.handle('icon', async (_e, p) => {
+  // Иконки достаются из системы и кодируются в PNG — это не бесплатно, поэтому кэшируем
+  const icons = new Map()
+  ipcMain.handle('icon', (_e, p) => {
     if (isUri(p)) return null
-    try {
-      return (await app.getFileIcon(p, { size: 'large' })).toDataURL()
-    } catch {
-      return null
+    if (!icons.has(p)) {
+      icons.set(
+        p,
+        app.getFileIcon(p, { size: 'large' }).then(
+          (img) => img.toDataURL(),
+          () => null
+        )
+      )
     }
+    return icons.get(p)
+  })
+  ipcMain.handle('dock:expand', (_e, on) => {
+    dockExpanded = !!on
+    dockWin.setBounds(dockBounds())
   })
 
   ipcMain.handle('dock:pin', (_e, item) => pinItem(item))
@@ -905,6 +960,7 @@ if (!app.requestSingleInstanceLock()) {
       let timer
       fs.watch(files.ensureFamiliarDir(app), () => {
         clearTimeout(timer)
+        filesCache = null
         timer = setTimeout(() => broadcast('familiar-changed'), 300)
       })
     } catch (err) {
@@ -918,7 +974,10 @@ if (!app.requestSingleInstanceLock()) {
     }, 1000)
   })
 
-  app.on('before-quit', () => bridge?.stop())
+  app.on('before-quit', () => {
+    if (writeTimer) writeConfigNow()
+    bridge?.stop()
+  })
   app.on('will-quit', () => globalShortcut.unregisterAll())
   app.on('window-all-closed', () => app.quit())
 }

@@ -13,6 +13,15 @@ async function iconFor(item, el) {
   }
 }
 
+// Пока иконка не загрузилась (или её нет, как у ms-settings:) — понятный значок вместо буквы
+function fallbackLetter(app) {
+  if (app.isDir) return '▦'
+  if (/^ms-settings:/i.test(app.path)) return '⚙'
+  if (/^(steam|com\.epicgames)/i.test(app.path)) return '▶'
+  if (/^https?:/i.test(app.path)) return '◎'
+  return app.name.charAt(0).toUpperCase()
+}
+
 function makeItem({ name, onClick, onMenu, system, letter, hwnds = [], foreground }) {
   const el = document.createElement('div')
   el.className = 'item' + (system ? ' system' : '')
@@ -47,6 +56,7 @@ function render({ pinned, running, foreground }) {
   pinned.forEach((app, i) => {
     const el = makeItem({
       name: app.name,
+      letter: fallbackLetter(app),
       hwnds: app.hwnds,
       foreground,
       // Папка — раскрываем «веер»; уже запущено — переключаемся на окно; иначе запускаем
@@ -140,12 +150,25 @@ stack.addEventListener('mouseleave', () => ((overStack = false), updateCapture()
 function closeStack() {
   stackFor = null
   stack.classList.remove('open')
+  // Окно дока сжимаем обратно, когда «веер» доиграл анимацию закрытия
+  setTimeout(() => !stackFor && window.familiar.expandDock(false), 450)
+}
+
+// Дождаться, пока окно реально поменяет размер (или 150 мс, если размер уже тот)
+function windowResized() {
+  return new Promise((resolve) => {
+    const done = () => (window.removeEventListener('resize', done), resolve())
+    window.addEventListener('resize', done)
+    setTimeout(done, 150)
+  })
 }
 
 async function toggleStack(app, anchor) {
   if (stackFor === app.path) return closeStack()
   stackFor = app.path
-  const { entries, path } = await window.familiar.listFolder(app.path)
+  const resized = windowResized()
+  const [{ entries, path }] = await Promise.all([window.familiar.listFolder(app.path), window.familiar.expandDock(true)])
+  await resized
 
   const head = document.createElement('div')
   head.className = 'stack-head'

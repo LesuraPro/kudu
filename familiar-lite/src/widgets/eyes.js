@@ -22,6 +22,7 @@ Widget.define('eyes', (card) => {
 
   // Позицию курсора спрашиваем у главного процесса — окно ведь его не видит
   async function trackCursor() {
+    if (document.hidden) return // окно скрыто — глазам смотреть некуда
     const p = await window.familiar.cursor()
     const cx = window.screenX + window.innerWidth / 2
     const cy = window.screenY + window.innerHeight / 2
@@ -126,13 +127,12 @@ Widget.define('eyes', (card) => {
     const oy = (h - size) / 2
     const c = (N - 1) / 2
     const colors = [Dot.css('--dot-off'), Dot.css('--text'), Dot.css('--accent')]
+    const dots = Dot.batch(ctx)
     for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
       if (Math.hypot(x - c, y - c) > c + 0.3) continue
       const v = grid[y * N + x]
-      ctx.fillStyle = colors[v]
-      ctx.beginPath()
-      ctx.arc(ox + x * pitch + pitch / 2, oy + y * pitch + pitch / 2, pitch * (v ? 0.4 : 0.22), 0, Math.PI * 2)
-      ctx.fill()
+      dots.dot(ox + x * pitch + pitch / 2, oy + y * pitch + pitch / 2, pitch * (v ? 0.4 : 0.22), colors[v])
     }
-  })
+    dots.flush()
+  }, { fps: 20 })
 })

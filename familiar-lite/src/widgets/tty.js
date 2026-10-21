@@ -33,11 +33,12 @@ Widget.define('tty', (card) => {
   // ---------- Экран из символов ----------
 
   const FONT = 13
+  const font = `${FONT}px ${getComputedStyle(document.body).fontFamily}`
   let cols = 0
   let rows = 0
   let chars = []
   let colors = []
-  let cw = 8
+  let cw = 0
   let ch = 16
   let state = {}
   const C = { text: '#e8e8e8', dim: '#55555b', mid: '#9a9aa0', red: '#ff2d2d', dark: '#2a2a2e' }
@@ -237,8 +238,9 @@ Widget.define('tty', (card) => {
 
   Widget.loop((t, dt) => {
     const { ctx, w, h } = Dot.fit(canvas)
-    ctx.font = `${FONT}px ${getComputedStyle(document.body).fontFamily}`
-    cw = ctx.measureText('M').width
+    ctx.font = font
+    // Ширину символа меряем один раз — шрифт не меняется
+    cw ||= ctx.measureText('M').width
     ch = Math.round(FONT * 1.3)
     const pad = 10
     const c = Math.max(10, Math.floor((w - pad * 2) / cw))
@@ -250,7 +252,7 @@ Widget.define('tty', (card) => {
     }
     clear()
     scenes[scene](t, dt)
-    title.textContent = `${info?.user ?? 'user'}@familiar: ~ — ${scene}`
+    Widget.text(title, `${info?.user ?? 'user'}@familiar: ~ — ${scene}`)
 
     ctx.clearRect(0, 0, w, h)
     ctx.textBaseline = 'top'
@@ -260,5 +262,5 @@ Widget.define('tty', (card) => {
       ctx.fillStyle = colors[y][x]
       ctx.fillText(s, pad + x * cw, pad + y * ch)
     }
-  })
+  }, { fps: 15 })
 })

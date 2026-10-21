@@ -17,15 +17,14 @@ Widget.define('clock', (card) => {
     const cx = w / 2
     const cy = h / 2
     const R = w / 2 - 6
+    const dots = Dot.batch(ctx)
     for (let i = 0; i < 60; i++) {
       const a = (i / 60) * Math.PI * 2 - Math.PI / 2
       const current = i === Math.floor(sec)
-      ctx.fillStyle = current ? accent : i < sec ? on : off
       const r = current ? 3 + Math.sin(t * 8) * 0.6 : i % 5 === 0 ? 2.4 : 1.7
-      ctx.beginPath()
-      ctx.arc(cx + Math.cos(a) * R, cy + Math.sin(a) * R, r, 0, Math.PI * 2)
-      ctx.fill()
+      dots.dot(cx + Math.cos(a) * R, cy + Math.sin(a) * R, r, current ? accent : i < sec ? on : off)
     }
+    dots.flush()
 
     // Часы и минуты точечным шрифтом друг под другом
     const pitch = 7
@@ -35,6 +34,6 @@ Widget.define('clock', (card) => {
     Dot.draw(ctx, hh, cx - tw / 2, cy - 7 * pitch - 4, { pitch, on, off })
     Dot.draw(ctx, mm, cx - tw / 2, cy + 4, { pitch, on, off })
 
-    date.textContent = now.toLocaleDateString('ru-RU', { weekday: 'long', day: 'numeric', month: 'long' })
-  })
+    Widget.text(date, now.toLocaleDateString('ru-RU', { weekday: 'long', day: 'numeric', month: 'long' }))
+  }, { fps: 12 })
 })

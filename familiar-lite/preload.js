@@ -26,6 +26,7 @@ contextBridge.exposeInMainWorld('familiar', {
   dockMenu: (index, running) => ipcRenderer.send('dock:menu', index, running),
   menubarMenu: (name, x) => ipcRenderer.send('menubar:menu', name, x),
   captureMouse: (over) => ipcRenderer.send('mouse:capture', over),
+  expandDock: (on) => ipcRenderer.invoke('dock:expand', on),
   pathForFile: (file) => webUtils.getPathForFile(file),
 
   toggleLauncher: () => ipcRenderer.send('launcher:toggle'),
