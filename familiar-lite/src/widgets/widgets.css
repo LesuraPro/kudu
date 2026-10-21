@@ -140,3 +140,114 @@ canvas { display: block; }
 }
 .w-games .tile.has-cover .name { display: none; }
 .w-games .empty { grid-column: 1 / -1; font-size: 12px; color: var(--muted); }
+
+/* ---------- Ярлыки ---------- */
+.w-shortcuts .head { display: flex; justify-content: space-between; align-items: center; }
+.w-shortcuts .open { font-size: 10px; letter-spacing: 0.08em; color: var(--muted); }
+.w-shortcuts .open:hover { color: var(--text); }
+.w-shortcuts .grid {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
+  gap: 6px;
+  align-content: start;
+  -webkit-app-region: no-drag;
+}
+.w-shortcuts .item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  padding: 8px 4px;
+  border-radius: 10px;
+  cursor: default;
+  outline: none;
+}
+.w-shortcuts .item:hover { background: var(--hover); }
+.w-shortcuts .item.selected { background: var(--hover); box-shadow: inset 0 0 0 1px var(--accent); }
+.w-shortcuts .icon { width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; font-size: 26px; color: var(--muted); position: relative; }
+.w-shortcuts .icon img { width: 100%; height: 100%; object-fit: contain; }
+/* Маленькая красная стрелка у ярлыков — как в Windows, только в нашем стиле */
+.w-shortcuts .item.link .icon::after {
+  content: '↗';
+  position: absolute;
+  left: -4px;
+  bottom: -2px;
+  font-size: 9px;
+  line-height: 1;
+  padding: 1px 2px;
+  border-radius: 3px;
+  color: #fff;
+  background: var(--accent);
+}
+.w-shortcuts .name {
+  font-family: var(--sans);
+  font-size: 11px;
+  text-align: center;
+  line-height: 1.25;
+  max-width: 100%;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  word-break: break-word;
+}
+.w-shortcuts .hint { font-size: 10px; color: var(--muted); text-align: center; }
+#card.w-shortcuts.drop { box-shadow: inset 0 0 0 2px var(--accent), var(--shadow); }
+
+/* ---------- Календарь ---------- */
+.w-calendar { gap: 8px; }
+.w-calendar .head { display: flex; align-items: center; gap: 6px; }
+.w-calendar .head .title { flex: 1; height: 16px; }
+.w-calendar .nav { width: 24px; height: 24px; border-radius: 8px; color: var(--muted); font-size: 16px; }
+.w-calendar .nav:hover { background: var(--hover); color: var(--text); }
+.w-calendar .week, .w-calendar .days { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; text-align: center; }
+.w-calendar .week span { font-size: 9px; letter-spacing: 0.1em; color: var(--muted); text-transform: uppercase; }
+.w-calendar .day {
+  position: relative;
+  height: 28px;
+  border-radius: 50%;
+  font-size: 12px;
+  -webkit-app-region: no-drag;
+  transition: background 0.15s, transform 0.2s cubic-bezier(0.34, 1.45, 0.5, 1);
+}
+.w-calendar .day:hover { background: var(--hover); transform: scale(1.1); }
+.w-calendar .day.other { color: var(--muted); opacity: 0.45; }
+.w-calendar .day.weekend:not(.today) { color: var(--muted); }
+.w-calendar .day.today { background: var(--accent); color: #fff; font-weight: 700; }
+.w-calendar .day.selected:not(.today) { box-shadow: inset 0 0 0 1px var(--text); }
+.w-calendar .day.has::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: 2px;
+  width: 4px;
+  height: 4px;
+  margin-left: -2px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.w-calendar .day.today.has::after { background: #fff; }
+.w-calendar ul { list-style: none; margin: 0; padding: 0; flex: 1; min-height: 0; overflow-y: auto; }
+.w-calendar li { display: flex; align-items: center; gap: 8px; font-size: 12px; padding: 3px 0; cursor: pointer; }
+.w-calendar li .box { width: 10px; height: 10px; flex: none; border-radius: 50%; border: 1.5px solid var(--muted); }
+.w-calendar li.done .box { background: var(--accent); border-color: var(--accent); }
+.w-calendar li.done span { text-decoration: line-through; color: var(--muted); }
+.w-calendar li.empty { color: var(--muted); cursor: default; }
+.w-calendar input {
+  width: 100%;
+  padding: 6px 10px;
+  font: inherit;
+  font-size: 11px;
+  color: var(--text);
+  background: var(--hover);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  outline: none;
+}
+.w-calendar input:focus { border-color: var(--accent); }
+
+/* Дата у напоминания в виджете «Напоминания» */
+.w-reminders li small { font-size: 10px; color: var(--accent); flex: none; }

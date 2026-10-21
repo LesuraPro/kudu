@@ -6,6 +6,7 @@ for (const el of document.querySelectorAll('[data-menu]')) {
   el.addEventListener('click', () => window.familiar.menubarMenu(el.dataset.menu, el.getBoundingClientRect().left))
 }
 $('appName').addEventListener('click', () => window.familiar.toggleLauncher())
+$('filesBtn').addEventListener('click', () => window.familiar.openFiles())
 
 // Имя активного приложения, как в macOS
 function showForeground(fg) {
@@ -14,8 +15,14 @@ function showForeground(fg) {
 window.familiar.getForeground().then(showForeground)
 window.familiar.onForeground(showForeground)
 
+// Аватар и имя текущего профиля; без фото — первая буква
 function showProfile(config) {
-  $('profile').textContent = `Профиль: ${config.profile}`
+  const p = config.profiles?.[config.profile] ?? { name: config.profile }
+  const avatar = document.createElement('i')
+  avatar.className = 'avatar'
+  if (p.photo) avatar.style.backgroundImage = `url("${p.photo}")`
+  else avatar.textContent = p.name.charAt(0).toUpperCase()
+  $('profile').replaceChildren(avatar, document.createTextNode(p.name))
 }
 window.familiar.getConfig().then(showProfile)
 window.familiar.onConfigChanged(showProfile)

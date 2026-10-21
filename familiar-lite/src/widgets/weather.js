@@ -33,6 +33,8 @@ Widget.define('weather', (card) => {
   }
   load()
   setInterval(load, 15 * 60 * 1000)
+  // Город сменили в настройках — сразу обновляем (в подписи всегда текущий город)
+  window.familiar.onConfigChanged((c) => c.weather.city !== label.textContent && load())
 
   // В мороз температура мигает красным
   Widget.loop((t) => {

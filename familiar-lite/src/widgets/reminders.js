@@ -1,4 +1,4 @@
-// Напоминания: хранятся в config.json, видны и в острове
+// Напоминания: хранятся в config.json, видны в острове и календаре
 Widget.define('reminders', (card) => {
   const label = Widget.el('div', 'label', 'Напоминания')
   const ul = Widget.el('ul')
@@ -19,7 +19,13 @@ Widget.define('reminders', (card) => {
           reminders.splice(i, 1)
           save()
         })
-        li.append(Widget.el('i', 'box'), Widget.el('span', '', r.text), del)
+        li.append(Widget.el('i', 'box'), Widget.el('span', '', r.text))
+        // Напоминание из календаря — показываем дату
+        if (r.date) {
+          const [y, m, d] = r.date.split('-').map(Number)
+          li.append(Widget.el('small', '', new Date(y, m - 1, d).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })))
+        }
+        li.append(del)
         li.addEventListener('click', () => {
           r.done = !r.done
           save()
@@ -42,8 +48,11 @@ Widget.define('reminders', (card) => {
     save()
   })
 
-  window.familiar.getConfig().then((c) => {
+  // Календарь тоже меняет напоминания — подхватываем
+  const load = (c) => {
     reminders = c.reminders ?? []
     render()
-  })
+  }
+  window.familiar.getConfig().then(load)
+  window.familiar.onConfigChanged(load)
 })

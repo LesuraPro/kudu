@@ -77,9 +77,63 @@
         transition: width 0.25s, background 0.25s;
       }
       .item .run.front { width: 12px; border-radius: 2px; background: var(--accent); }
+
+      /* «Веер» папки: всплывает из иконки с пружинкой */
+      #stack {
+        position: absolute;
+        width: 380px;
+        max-height: 330px;
+        padding: 12px;
+        border-radius: 20px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        transform-origin: var(--arrow, 50%) 100%;
+        transform: translateY(24px) scale(0.4);
+        opacity: 0;
+        pointer-events: none;
+        transition: transform 0.45s cubic-bezier(0.34, 1.45, 0.5, 1), opacity 0.2s;
+      }
+      #stack.open { transform: none; opacity: 1; pointer-events: auto; }
+      #stack::after {
+        content: '';
+        position: absolute;
+        bottom: -6px;
+        left: calc(var(--arrow, 50%) - 6px);
+        width: 12px;
+        height: 12px;
+        transform: rotate(45deg);
+        background: var(--bg);
+        border-right: 1px solid var(--border);
+        border-bottom: 1px solid var(--border);
+      }
+      .stack-head { display: flex; justify-content: space-between; align-items: center; padding: 0 4px; }
+      .stack-head span { font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--muted); }
+      .stack-head button { font-size: 10px; color: var(--muted); }
+      .stack-head button:hover { color: var(--text); }
+      .stack-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px; overflow-x: hidden; overflow-y: auto; }
+      .stack-item {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 4px;
+        padding: 8px 2px;
+        border-radius: 10px;
+        font-family: var(--sans);
+        font-size: 10px;
+        animation: fly 0.4s cubic-bezier(0.34, 1.45, 0.5, 1) both;
+      }
+      #stack:not(.open) .stack-item { animation: none; }
+      .stack-item:hover { background: var(--hover); }
+      .stack-item span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .stack-icon { width: 34px; height: 34px; display: flex; align-items: center; justify-content: center; font-size: 24px; color: var(--muted); }
+      .stack-icon img { width: 100%; height: 100%; object-fit: contain; }
+      .stack-empty, .stack-more { font-size: 11px; color: var(--muted); text-align: center; padding: 4px; }
+      @keyframes fly { from { opacity: 0; transform: translateY(30px) scale(0.5); } }
     </style>
   </head>
   <body>
+    <div id="stack" class="glass"></div>
     <div id="dock" class="glass"></div>
     <script src="dock.js"></script>
   </body>

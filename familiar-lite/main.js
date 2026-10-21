@@ -11,7 +11,9 @@ const {
   net,
   nativeTheme,
   session,
-  desktopCapturer
+  desktopCapturer,
+  dialog,
+  nativeImage
 } = require('electron')
 const path = require('path')
 const fs = require('fs')
@@ -22,6 +24,8 @@ const { startBridge } = require('./lib/bridge')
 const { listApps, listFiles } = require('./lib/apps')
 const { startStats, systemInfo, readBatteries } = require('./lib/system')
 const { listGames, gameCover } = require('./lib/games')
+const files = require('./lib/files')
+const profiles = require('./lib/profiles')
 
 const isWin = process.platform === 'win32'
 // FAMILIAR_DEMO=1 — выдуманные трек, окна, игры и наушники (удобно проверять без Windows)
@@ -40,6 +44,8 @@ const WIDGETS = {
   eyes: { title: 'Глазки', width: 200, height: 200, resizable: true, minWidth: 110, minHeight: 110 },
   system: { title: 'Нагрузка', width: 320, height: 210, resizable: true },
   games: { title: 'Игры', width: 420, height: 320, resizable: true },
+  calendar: { title: 'Календарь', width: 300, height: 380 },
+  shortcuts: { title: 'Ярлыки', width: 300, height: 260, resizable: true },
   tty: { title: 'Терминал familiar-tty', width: 640, height: 420, resizable: true }
 }
 
@@ -74,17 +80,15 @@ const allWidgets = () => ({ ...WIDGETS, ...customWidgets() })
 
 // ---------- Настройки (лежат в %APPDATA%\familiar-lite\config.json) ----------
 
-const PROFILES = ['Основной', 'Учёба', 'Игры']
-
 const DEFAULT_CONFIG = {
   theme: 'dark', // system | light | dark
   // Воронеж по умолчанию — поменяй координаты под себя
   weather: { city: 'Воронеж', latitude: 51.67, longitude: 39.18 },
   island: true,
   menubar: true,
-  wallpaper: null,
-  profile: PROFILES[0],
-  // У каждого профиля свои закреплённые приложения и виджеты
+  wallpaper: null, // 'planet' | 'grid' | … | 'custom:<путь к картинке>'
+  profile: 'Основной',
+  // Имя, фото и настройки профилей (см. lib/profiles.js)
   profiles: {},
   pinned: isWin
     ? [
@@ -100,11 +104,14 @@ const DEFAULT_CONFIG = {
 const configPath = () => path.join(app.getPath('userData'), 'config.json')
 
 function loadConfig() {
+  let loaded
   try {
-    return { ...structuredClone(DEFAULT_CONFIG), ...JSON.parse(fs.readFileSync(configPath(), 'utf8')) }
+    loaded = { ...structuredClone(DEFAULT_CONFIG), ...JSON.parse(fs.readFileSync(configPath(), 'utf8')) }
   } catch {
-    return structuredClone(DEFAULT_CONFIG)
+    loaded = structuredClone(DEFAULT_CONFIG)
   }
+  profiles.migrate(loaded)
+  return loaded
 }
 
 let config
@@ -200,12 +207,20 @@ function groupWindows() {
   return groups
 }
 
+// Закреплённая папка в доке открывается «веером», а не в Проводнике
+const dirCache = new Map()
+function isPinnedDir(item) {
+  if (isUri(item.path) || item.exec) return false
+  if (!dirCache.has(item.path)) dirCache.set(item.path, files.isDirTarget(item.path))
+  return dirCache.get(item.path)
+}
+
 function dockState() {
   const groups = groupWindows()
   const pinned = config.pinned.map((p) => {
     const g = groups.get(pinnedTarget(p))
     if (g) g.claimed = true
-    return { ...p, hwnds: g?.hwnds ?? [] }
+    return { ...p, hwnds: g?.hwnds ?? [], isDir: isPinnedDir(p) }
   })
   const running = [...groups.values()]
     .filter((g) => !g.claimed && g.path)
@@ -257,11 +272,12 @@ const webPreferences = {
   backgroundThrottling: false // анимации не должны замирать, когда окно не в фокусе
 }
 
-let dockWin, launcherWin, islandWin, menubarWin
+let dockWin, launcherWin, islandWin, menubarWin, settingsWin, filesWin
 const widgetWins = {}
 let widgetsHidden = false
 
-const DOCK_HEIGHT = 120
+const DOCK_HEIGHT = 120 // сколько места док занимает внизу (для раскладки виджетов)
+const DOCK_WINDOW_HEIGHT = 470 // окно выше: над доком раскрывается «веер» папки
 const MENUBAR_HEIGHT = 30
 
 // Окно-«оверлей»: без рамки, прозрачное, поверх всех, клики насквозь
@@ -285,7 +301,7 @@ function overlay(bounds, file) {
 
 function dockBounds() {
   const { workArea } = screen.getPrimaryDisplay()
-  return { x: workArea.x, y: workArea.y + workArea.height - DOCK_HEIGHT, width: workArea.width, height: DOCK_HEIGHT }
+  return { x: workArea.x, y: workArea.y + workArea.height - DOCK_WINDOW_HEIGHT, width: workArea.width, height: DOCK_WINDOW_HEIGHT }
 }
 
 function createDock() {
@@ -440,47 +456,172 @@ function toggleWidgets() {
   for (const w of Object.values(widgetWins)) widgetsHidden ? w.hide() : w.showInactive()
 }
 
+// ---------- Обычные окна: настройки и файлы ----------
+
+// Окно с родной кнопкой «закрыть/свернуть» Windows, но без стандартной рамки
+function appWindow(file, query, size) {
+  const dark = nativeTheme.shouldUseDarkColors
+  const win = new BrowserWindow({
+    ...size,
+    frame: false,
+    titleBarStyle: 'hidden',
+    titleBarOverlay: { color: '#00000000', symbolColor: dark ? '#f2f2f2' : '#111111', height: 44 },
+    backgroundColor: dark ? '#0b0b0d' : '#f2f2f2',
+    show: false,
+    webPreferences
+  })
+  win.loadFile(path.join(SRC, file), { query })
+  win.once('ready-to-show', () => win.show())
+  return win
+}
+
+function openSettings(page = 'profile') {
+  if (settingsWin && !settingsWin.isDestroyed()) {
+    settingsWin.show()
+    settingsWin.focus()
+    settingsWin.webContents.send('settings:page', page)
+    return
+  }
+  settingsWin = appWindow('settings.html', { page }, { width: 860, height: 600, minWidth: 700, minHeight: 460 })
+}
+
+function openFiles(dir) {
+  dir ??= files.ensureFamiliarDir(app)
+  if (filesWin && !filesWin.isDestroyed()) {
+    filesWin.show()
+    filesWin.focus()
+    filesWin.webContents.send('files:goto', dir)
+    return
+  }
+  filesWin = appWindow('files.html', { dir }, { width: 900, height: 580, minWidth: 560, minHeight: 360 })
+}
+
+// Окна с родной кнопкой «закрыть» перекрашиваем при смене темы
+nativeTheme.on('updated', () => {
+  const dark = nativeTheme.shouldUseDarkColors
+  for (const w of [settingsWin, filesWin]) {
+    if (!w || w.isDestroyed()) continue
+    w.setTitleBarOverlay({ color: '#00000000', symbolColor: dark ? '#f2f2f2' : '#111111', height: 44 })
+    w.setBackgroundColor(dark ? '#0b0b0d' : '#f2f2f2')
+  }
+})
+
 // ---------- Профили ----------
 
-function switchProfile(name) {
-  if (name === config.profile) return
-  config.profiles[config.profile] = { pinned: config.pinned, widgets: config.widgets }
-  // Новый профиль начинается копией текущего
-  const next = config.profiles[name] ?? structuredClone({ pinned: config.pinned, widgets: config.widgets })
-  config.profile = name
-  config.pinned = next.pinned
-  config.widgets = next.widgets
+// Применить то, что зависит от профиля: тему, обои, док и виджеты
+function applyProfile() {
+  nativeTheme.themeSource = config.theme
   saveConfig()
   closeAllWidgets()
   syncWidgets()
   updateDock()
+  if (config.wallpaper) applyWallpaper(config.wallpaper).catch((e) => console.error('Обои:', e))
+}
+
+function switchProfile(id) {
+  if (profiles.switchTo(config, id)) applyProfile()
+}
+
+const IMAGE_FILTERS = [{ name: 'Картинки', extensions: ['png', 'jpg', 'jpeg', 'webp', 'bmp', 'gif'] }]
+
+// Фото профиля: обрезаем до квадрата, уменьшаем и храним прямо в config.json
+async function chooseProfilePhoto(id) {
+  const { canceled, filePaths } = await dialog.showOpenDialog({ title: 'Фото профиля', properties: ['openFile'], filters: IMAGE_FILTERS })
+  if (canceled || !filePaths[0]) return false
+  const img = nativeImage.createFromPath(filePaths[0])
+  if (img.isEmpty()) return false
+  const { width, height } = img.getSize()
+  const side = Math.min(width, height)
+  const square = img
+    .crop({ x: Math.floor((width - side) / 2), y: Math.floor((height - side) / 2), width: side, height: side })
+    .resize({ width: 128, height: 128, quality: 'best' })
+  profiles.update(config, id, { photo: square.toDataURL() })
+  saveConfig()
+  return true
 }
 
 // ---------- Обои ----------
 
 const WALLPAPERS = { planet: 'Красная планета', grid: 'Точечная сетка', horizon: 'Горизонт', paper: 'Светлая бумага' }
 
-// Рисуем обои в скрытом окне на canvas под разрешение экрана и ставим через мост
-async function applyWallpaper(style) {
+// value — название стиля ('planet') или 'custom:<путь к своей картинке>'
+async function applyWallpaper(value) {
+  const file = value.startsWith('custom:') ? value.slice('custom:'.length) : await renderWallpaper(value)
+  config.wallpaper = value
+  saveConfig()
+  if (isWin) bridge.send(`wallpaper ${file}`)
+  else if (!isDemo) shell.showItemInFolder(file)
+  return file
+}
+
+// Рисуем обои в скрытом окне на canvas под разрешение экрана
+async function renderWallpaper(style) {
   const d = screen.getPrimaryDisplay()
   const w = Math.round(d.size.width * d.scaleFactor)
   const h = Math.round(d.size.height * d.scaleFactor)
+  const dir = path.join(app.getPath('userData'), 'wallpapers')
+  const file = path.join(dir, `${style}-${w}x${h}.png`)
+  if (fs.existsSync(file)) return file
   const win = new BrowserWindow({ show: false, width: 200, height: 200, webPreferences })
   try {
     await win.loadFile(path.join(SRC, 'wallpaper.html'), { query: { style, w: String(w), h: String(h) } })
     const dataUrl = await win.webContents.executeJavaScript('window.renderWallpaper()')
-    const dir = path.join(app.getPath('userData'), 'wallpapers')
     fs.mkdirSync(dir, { recursive: true })
-    const file = path.join(dir, `${style}-${w}x${h}.png`)
     fs.writeFileSync(file, Buffer.from(dataUrl.split(',')[1], 'base64'))
-    config.wallpaper = style
-    saveConfig()
-    if (isWin) bridge.send(`wallpaper ${file}`)
-    else shell.showItemInFolder(file)
     return file
   } finally {
     win.destroy()
   }
+}
+
+// Своя картинка: копируем к себе, чтобы обои не пропали, если оригинал переместят
+async function chooseWallpaper() {
+  const { canceled, filePaths } = await dialog.showOpenDialog({ title: 'Свои обои', properties: ['openFile'], filters: IMAGE_FILTERS })
+  if (canceled || !filePaths[0]) return null
+  const dir = path.join(app.getPath('userData'), 'wallpapers')
+  fs.mkdirSync(dir, { recursive: true })
+  const dest = path.join(dir, `custom-${Date.now()}${path.extname(filePaths[0])}`)
+  fs.copyFileSync(filePaths[0], dest)
+  return applyWallpaper(`custom:${dest}`)
+}
+
+// ---------- Настройки ----------
+
+function setTheme(t) {
+  config.theme = t
+  nativeTheme.themeSource = t
+  saveConfig()
+}
+
+function setSetting(key, value) {
+  if (key === 'theme') return setTheme(value)
+  if (key === 'island') {
+    config.island = !!value
+    value ? islandWin.showInactive() : islandWin.hide()
+  } else if (key === 'menubar') {
+    config.menubar = !!value
+    if (value && !menubarWin) createMenubar()
+    if (!value) destroyMenubar()
+  } else if (key === 'weather') {
+    const { city, latitude, longitude } = value
+    if (typeof city !== 'string' || !Number.isFinite(latitude) || !Number.isFinite(longitude)) return
+    config.weather = { city, latitude, longitude }
+  } else {
+    return
+  }
+  saveConfig()
+}
+
+function resetLayout() {
+  for (const name of Object.keys(config.widgets)) delete config.widgets[name].bounds
+  for (const [name, win] of Object.entries(widgetWins)) win.setBounds(defaultBounds(name))
+  saveConfig()
+}
+
+function setWidgetEnabled(name, enabled) {
+  config.widgets[name] = { ...config.widgets[name], enabled }
+  saveConfig()
+  syncWidgets()
 }
 
 // ---------- Меню ----------
@@ -491,34 +632,30 @@ const menus = {
       label: def.file ? `${def.title} (свой)` : def.title,
       type: 'checkbox',
       checked: widgetEnabled(name),
-      click: (item) => {
-        config.widgets[name] = { ...config.widgets[name], enabled: item.checked }
-        saveConfig()
-        syncWidgets()
-      }
+      click: (item) => setWidgetEnabled(name, item.checked)
     })),
     { type: 'separator' },
     { label: 'Показать/скрыть все (Alt+W)', click: toggleWidgets },
-    {
-      label: 'Вернуть раскладку по умолчанию',
-      click: () => {
-        for (const name of Object.keys(config.widgets)) delete config.widgets[name].bounds
-        for (const [name, win] of Object.entries(widgetWins)) win.setBounds(defaultBounds(name))
-        saveConfig()
-      }
-    },
+    { label: 'Вернуть раскладку по умолчанию', click: resetLayout },
     { label: 'Папка своих виджетов…', click: () => shell.openPath(customDir()) },
     { label: 'Обновить свои виджеты', click: syncWidgets }
   ],
-  wallpaper: () =>
-    Object.entries(WALLPAPERS).map(([style, label]) => ({
+  wallpaper: () => [
+    ...Object.entries(WALLPAPERS).map(([style, label]) => ({
       label,
       type: 'radio',
       checked: config.wallpaper === style,
       click: () => applyWallpaper(style).catch((e) => console.error('Обои:', e))
     })),
-  profile: () =>
-    PROFILES.map((name) => ({ label: name, type: 'radio', checked: config.profile === name, click: () => switchProfile(name) })),
+    { label: 'Своя картинка…', type: 'radio', checked: !!config.wallpaper?.startsWith('custom:'), click: () => chooseWallpaper() },
+    { type: 'separator' },
+    { label: 'Настройки обоев…', click: () => openSettings('appearance') }
+  ],
+  profile: () => [
+    ...profiles.list(config).map((p) => ({ label: p.name, type: 'radio', checked: p.current, click: () => switchProfile(p.id) })),
+    { type: 'separator' },
+    { label: 'Настройки профилей…', click: () => openSettings('profile') }
+  ],
   theme: () =>
     ['system', 'light', 'dark'].map((t) => ({
       label: { system: 'Как в системе', light: 'Светлая', dark: 'Тёмная' }[t],
@@ -527,37 +664,15 @@ const menus = {
       click: () => setTheme(t)
     })),
   familiar: () => [
+    { label: 'Настройки…', click: () => openSettings() },
+    { label: 'Файлы', click: () => openFiles() },
     { label: 'Поиск (Alt+Space)', click: toggleLauncher },
-    {
-      label: 'Остров сверху',
-      type: 'checkbox',
-      checked: config.island,
-      click: (item) => {
-        config.island = item.checked
-        saveConfig()
-        item.checked ? islandWin.showInactive() : islandWin.hide()
-      }
-    },
-    {
-      label: 'Верхняя панель',
-      type: 'checkbox',
-      checked: config.menubar,
-      click: (item) => {
-        config.menubar = item.checked
-        saveConfig()
-        item.checked ? createMenubar() : destroyMenubar()
-      }
-    },
-    { label: 'Открыть файл настроек', click: () => shell.openPath(configPath()) },
     { type: 'separator' },
-    { label: 'Выйти', click: () => app.quit() }
+    { label: 'Остров сверху', type: 'checkbox', checked: config.island, click: (item) => setSetting('island', item.checked) },
+    { label: 'Верхняя панель', type: 'checkbox', checked: config.menubar, click: (item) => setSetting('menubar', item.checked) },
+    { type: 'separator' },
+    { label: 'Выйти', accelerator: 'Ctrl+Alt+Q', click: () => app.quit() }
   ]
-}
-
-function setTheme(t) {
-  config.theme = t
-  nativeTheme.themeSource = t
-  saveConfig()
 }
 
 function fullMenu(index, running) {
@@ -568,7 +683,7 @@ function fullMenu(index, running) {
     { type: 'separator' },
     { label: 'Виджеты', submenu: menus.widgets() },
     { label: 'Обои', submenu: menus.wallpaper() },
-    { label: `Профиль: ${config.profile}`, submenu: menus.profile() },
+    { label: `Профиль: ${profiles.current(config).name}`, submenu: menus.profile() },
     { label: 'Тема', submenu: menus.theme() },
     { type: 'separator' },
     ...menus.familiar()
@@ -583,7 +698,11 @@ let devices = []
 function registerIpc() {
   ipcMain.handle('config:get', () => config)
   ipcMain.handle('apps:list', () => listApps(app))
-  ipcMain.handle('files:list', () => listFiles(app))
+  // Для поиска: рабочий стол, «Документы» и всё из папки Familiar
+  ipcMain.handle('files:list', () => {
+    const seen = new Set()
+    return [...files.searchFamiliar(app), ...listFiles(app)].filter((f) => !seen.has(f.path) && seen.add(f.path))
+  })
   ipcMain.handle('games:list', () => listGames(isDemo))
   ipcMain.handle('game:cover', (_e, id) => gameCover(listGames(isDemo).find((g) => g.id === id)))
   ipcMain.handle('launch', (_e, item) => launch(item))
@@ -636,6 +755,76 @@ function registerIpc() {
   ipcMain.on('launcher:hide', () => launcherWin.hide())
   ipcMain.on('launcher:toggle', toggleLauncher)
   ipcMain.on('widgets:toggle', toggleWidgets)
+
+  // Папка Familiar, «Ярлыки» и «Файлы»
+  ipcMain.handle('places', () => files.places(app))
+  ipcMain.handle('folder:list', (_e, dir) => files.listFolder(dir ? files.linkTarget(dir) : files.ensureFamiliarDir(app)))
+  ipcMain.handle('shortcut:add', (_e, targets) => {
+    for (const t of targets) {
+      try {
+        files.addShortcut(app, t)
+      } catch (err) {
+        console.error('Ярлык не создан:', t, err.message)
+      }
+    }
+  })
+  ipcMain.on('shortcut:menu', (e, item) => {
+    const inFamiliar = path.dirname(item.path) === files.familiarDir(app)
+    const template = [
+      { label: 'Открыть', click: () => launch(item) },
+      { label: 'Показать в Проводнике', click: () => shell.showItemInFolder(files.linkTarget(item.path)) },
+      ...(item.isDir ? [{ label: 'Открыть в «Файлах»', click: () => openFiles(files.linkTarget(item.path)) }] : []),
+      { type: 'separator' },
+      {
+        label: item.isLink ? 'Убрать ярлык (оригинал останется)' : 'Убрать из Familiar (в корзину)',
+        enabled: inFamiliar,
+        click: () => files.removeFromFamiliar(app, item.path).catch((err) => dialog.showErrorBox('Не получилось', err.message))
+      }
+    ]
+    Menu.buildFromTemplate(template).popup({ window: BrowserWindow.fromWebContents(e.sender) })
+  })
+  ipcMain.on('file:reveal', (_e, p) => shell.showItemInFolder(files.linkTarget(p)))
+  ipcMain.on('files:open', (_e, dir) => openFiles(dir))
+
+  // Окно настроек
+  ipcMain.on('settings:open', (_e, page) => openSettings(page))
+  ipcMain.handle('settings:set', (_e, key, value) => setSetting(key, value))
+  ipcMain.handle('widgets:list', () =>
+    Object.entries(allWidgets()).map(([name, def]) => ({ name, title: def.title, custom: !!def.file, enabled: widgetEnabled(name) }))
+  )
+  ipcMain.handle('widgets:set', (_e, name, enabled) => setWidgetEnabled(name, !!enabled))
+  ipcMain.handle('widgets:reset', () => resetLayout())
+  ipcMain.on('widgets:folder', () => shell.openPath(customDir()))
+  ipcMain.handle('profiles:list', () => profiles.list(config))
+  ipcMain.handle('profiles:switch', (_e, id) => switchProfile(id))
+  ipcMain.handle('profiles:create', (_e, name) => {
+    const id = profiles.create(config, String(name ?? ''))
+    saveConfig()
+    return id
+  })
+  ipcMain.handle('profiles:remove', (_e, id) => profiles.remove(config, id) && saveConfig())
+  ipcMain.handle('profiles:rename', (_e, id, name) => profiles.update(config, id, { name: String(name ?? '') }) && saveConfig())
+  ipcMain.handle('profiles:photo', (_e, id) => chooseProfilePhoto(id))
+  ipcMain.handle('profiles:photo-clear', (_e, id) => profiles.update(config, id, { photo: null }) && saveConfig())
+  ipcMain.handle('wallpapers:list', () => WALLPAPERS)
+  ipcMain.handle('wallpaper:apply', (_e, style) => applyWallpaper(style))
+  ipcMain.handle('wallpaper:choose', () => chooseWallpaper())
+  ipcMain.on('window:close', (e) => BrowserWindow.fromWebContents(e.sender)?.close())
+  ipcMain.on('app:quit', () => app.quit())
+
+  // Поиск города для погоды (геокодер Open-Meteo, тоже без ключа)
+  ipcMain.handle('geo:search', async (_e, query) => {
+    const url = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(query)}&count=6&language=ru&format=json`
+    const res = await net.fetch(url)
+    if (!res.ok) throw new Error(`Open-Meteo: ${res.status}`)
+    const data = await res.json()
+    return (data.results ?? []).map((r) => ({
+      city: r.name,
+      region: [r.admin1, r.country].filter(Boolean).join(', '),
+      latitude: r.latitude,
+      longitude: r.longitude
+    }))
+  })
 
   ipcMain.handle('reminders:set', (_e, reminders) => {
     config.reminders = reminders
@@ -708,6 +897,19 @@ if (!app.requestSingleInstanceLock()) {
       console.warn('Alt+Space занят другой программой (например, PowerToys Run)')
     }
     globalShortcut.register('Alt+W', toggleWidgets)
+    // Как в оригинале: Ctrl+Alt+Q — выйти. Открытые программы Windows продолжат работать
+    globalShortcut.register('Control+Alt+Q', () => app.quit())
+
+    // Что-то положили в папку Familiar или убрали — обновляем «Ярлыки» и «Файлы»
+    try {
+      let timer
+      fs.watch(files.ensureFamiliarDir(app), () => {
+        clearTimeout(timer)
+        timer = setTimeout(() => broadcast('familiar-changed'), 300)
+      })
+    } catch (err) {
+      console.error('Не получилось следить за папкой Familiar:', err.message)
+    }
 
     // Список приложений и игр собираем заранее, чтобы поиск открывался мгновенно
     setTimeout(() => {

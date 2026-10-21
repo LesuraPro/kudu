@@ -49,8 +49,9 @@ function render({ pinned, running, foreground }) {
       name: app.name,
       hwnds: app.hwnds,
       foreground,
-      // Уже запущено — переключаемся на окно, иначе запускаем
-      onClick: () => (app.hwnds.length ? window.familiar.focusWindow(app.hwnds) : window.familiar.launch(app)),
+      // Папка — раскрываем «веер»; уже запущено — переключаемся на окно; иначе запускаем
+      onClick: () =>
+        app.isDir ? toggleStack(app, el) : app.hwnds.length ? window.familiar.focusWindow(app.hwnds) : window.familiar.launch(app),
       onMenu: () => window.familiar.dockMenu(i)
     })
     iconFor(app, el)
@@ -110,11 +111,94 @@ dock.addEventListener('mousemove', (e) => {
   }
 })
 
-dock.addEventListener('mouseenter', () => window.familiar.captureMouse(true))
+// Окно ловит клики, пока мышь над доком или над открытым «веером»
+let overDock = false
+let overStack = false
+let closeTimer
+function updateCapture() {
+  window.familiar.captureMouse(overDock || overStack)
+  clearTimeout(closeTimer)
+  if (!overDock && !overStack && stackFor) closeTimer = setTimeout(closeStack, 500)
+}
+
+dock.addEventListener('mouseenter', () => ((overDock = true), updateCapture()))
 dock.addEventListener('mouseleave', () => {
-  window.familiar.captureMouse(false)
+  overDock = false
+  updateCapture()
   for (const el of dock.querySelectorAll('.item')) el.style.width = el.style.height = ''
 })
+
+// ---------- «Веер» закреплённой папки ----------
+
+const stack = document.getElementById('stack')
+const STACK_LIMIT = 15
+let stackFor = null
+
+stack.addEventListener('mouseenter', () => ((overStack = true), updateCapture()))
+stack.addEventListener('mouseleave', () => ((overStack = false), updateCapture()))
+
+function closeStack() {
+  stackFor = null
+  stack.classList.remove('open')
+}
+
+async function toggleStack(app, anchor) {
+  if (stackFor === app.path) return closeStack()
+  stackFor = app.path
+  const { entries, path } = await window.familiar.listFolder(app.path)
+
+  const head = document.createElement('div')
+  head.className = 'stack-head'
+  const title = document.createElement('span')
+  title.textContent = app.name
+  const open = document.createElement('button')
+  open.textContent = 'В «Файлах» ↗'
+  open.addEventListener('click', () => (window.familiar.openFiles(path), closeStack()))
+  head.append(title, open)
+
+  const grid = document.createElement('div')
+  grid.className = 'stack-grid'
+  entries.slice(0, STACK_LIMIT).forEach((entry, i) => {
+    const el = document.createElement('button')
+    el.className = 'stack-item'
+    // Появляются по очереди, снизу вверх — как будто вылетают из иконки
+    el.style.animationDelay = `${(STACK_LIMIT - i) * 14}ms`
+    const icon = document.createElement('div')
+    icon.className = 'stack-icon'
+    icon.textContent = entry.isDir ? '▦' : '▤'
+    window.familiar.icon(entry.path).then((src) => {
+      if (!src) return
+      const img = document.createElement('img')
+      img.src = src
+      icon.replaceChildren(img)
+    })
+    const name = document.createElement('span')
+    name.textContent = entry.name
+    el.append(icon, name)
+    el.title = entry.name
+    el.addEventListener('click', () => {
+      if (entry.isDir) window.familiar.openFiles(entry.path)
+      else window.familiar.launch({ path: entry.path })
+      closeStack()
+    })
+    grid.appendChild(el)
+  })
+  if (!entries.length) grid.append(Object.assign(document.createElement('div'), { className: 'stack-empty', textContent: 'Папка пуста' }))
+  const more = entries.length > STACK_LIMIT ? [Object.assign(document.createElement('div'), { className: 'stack-more', textContent: `и ещё ${entries.length - STACK_LIMIT}…` })] : []
+
+  stack.replaceChildren(head, grid, ...more)
+
+  // Ставим «веер» над иконкой папки, не вылезая за края экрана
+  const r = anchor.getBoundingClientRect()
+  const width = stack.offsetWidth || 380
+  const left = Math.max(8, Math.min(window.innerWidth - width - 8, r.left + r.width / 2 - width / 2))
+  stack.style.left = `${left}px`
+  stack.style.bottom = `${window.innerHeight - r.top + 14}px`
+  stack.style.setProperty('--arrow', `${r.left + r.width / 2 - left}px`)
+  stack.classList.remove('open')
+  void stack.offsetWidth // перезапуск анимации
+  stack.classList.add('open')
+}
 
 // Перетащить файл/ярлык из Проводника прямо на док — он закрепится
 document.addEventListener('dragover', (e) => e.preventDefault())

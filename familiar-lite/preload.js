@@ -44,5 +44,37 @@ contextBridge.exposeInMainWorld('familiar', {
   onStats: on('stats'),
   getDevices: () => ipcRenderer.invoke('devices:get'),
   onDevices: on('devices'),
-  cursor: () => ipcRenderer.invoke('cursor:get')
+  cursor: () => ipcRenderer.invoke('cursor:get'),
+
+  // Папка Familiar, «Ярлыки», «Файлы»
+  places: () => ipcRenderer.invoke('places'),
+  listFolder: (dir) => ipcRenderer.invoke('folder:list', dir),
+  addShortcuts: (paths) => ipcRenderer.invoke('shortcut:add', paths),
+  shortcutMenu: (item) => ipcRenderer.send('shortcut:menu', item),
+  reveal: (path) => ipcRenderer.send('file:reveal', path),
+  openFiles: (dir) => ipcRenderer.send('files:open', dir),
+  onFamiliarChanged: on('familiar-changed'),
+  onFilesGoto: on('files:goto'),
+
+  // Настройки, профили, обои
+  openSettings: (page) => ipcRenderer.send('settings:open', page),
+  onSettingsPage: on('settings:page'),
+  setSetting: (key, value) => ipcRenderer.invoke('settings:set', key, value),
+  listWidgets: () => ipcRenderer.invoke('widgets:list'),
+  setWidget: (name, enabled) => ipcRenderer.invoke('widgets:set', name, enabled),
+  resetLayout: () => ipcRenderer.invoke('widgets:reset'),
+  openWidgetsFolder: () => ipcRenderer.send('widgets:folder'),
+  listProfiles: () => ipcRenderer.invoke('profiles:list'),
+  switchProfile: (id) => ipcRenderer.invoke('profiles:switch', id),
+  createProfile: (name) => ipcRenderer.invoke('profiles:create', name),
+  removeProfile: (id) => ipcRenderer.invoke('profiles:remove', id),
+  renameProfile: (id, name) => ipcRenderer.invoke('profiles:rename', id, name),
+  chooseProfilePhoto: (id) => ipcRenderer.invoke('profiles:photo', id),
+  clearProfilePhoto: (id) => ipcRenderer.invoke('profiles:photo-clear', id),
+  listWallpapers: () => ipcRenderer.invoke('wallpapers:list'),
+  applyWallpaper: (style) => ipcRenderer.invoke('wallpaper:apply', style),
+  chooseWallpaper: () => ipcRenderer.invoke('wallpaper:choose'),
+  searchCity: (q) => ipcRenderer.invoke('geo:search', q),
+  closeWindow: () => ipcRenderer.send('window:close'),
+  quit: () => ipcRenderer.send('app:quit')
 })

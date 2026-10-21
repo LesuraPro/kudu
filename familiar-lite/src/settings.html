@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'" />
+    <title>Настройки</title>
+    <link rel="stylesheet" href="theme.css" />
+    <style>
+      html, body { height: 100%; }
+      body { display: grid; grid-template-columns: 220px 1fr; grid-template-rows: 44px 1fr; background: var(--bg-strong); }
+
+      header {
+        grid-column: 1 / -1;
+        display: flex;
+        align-items: center;
+        padding: 0 150px 0 18px;
+        border-bottom: 1px solid var(--border);
+        -webkit-app-region: drag;
+      }
+      .logo { font-size: 11px; font-weight: 700; letter-spacing: 0.22em; display: flex; align-items: center; gap: 8px; }
+      .logo::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
+
+      nav { border-right: 1px solid var(--border); padding: 12px 8px; overflow-y: auto; }
+      nav button {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        width: 100%;
+        padding: 8px 12px;
+        border-radius: 9px;
+        font-family: var(--sans);
+        font-size: 13px;
+        text-align: left;
+        color: var(--muted);
+      }
+      nav button::before { content: ''; width: 5px; height: 5px; border-radius: 50%; background: var(--dot-off); flex: none; transition: background 0.2s; }
+      nav button:hover { background: var(--hover); color: var(--text); }
+      nav button.active { background: var(--hover); color: var(--text); }
+      nav button.active::before { background: var(--accent); }
+
+      main { overflow-y: auto; padding: 26px 34px 40px; font-family: var(--sans); }
+      main h1 { margin: 0 0 4px; font-size: 22px; font-weight: 600; }
+      main .sub { color: var(--muted); font-size: 13px; margin-bottom: 22px; line-height: 1.5; }
+      main h2 { margin: 26px 0 10px; font-family: var(--mono); font-size: 10px; font-weight: 400; letter-spacing: 0.18em; text-transform: uppercase; color: var(--muted); }
+      .page { animation: in 0.35s cubic-bezier(0.34, 1.3, 0.5, 1); }
+      @keyframes in { from { opacity: 0; transform: translateY(8px); } }
+
+      .group { border: 1px solid var(--border); border-radius: 14px; overflow: hidden; }
+      .row { display: flex; align-items: center; gap: 14px; padding: 12px 16px; font-size: 13px; }
+      .row + .row { border-top: 1px solid var(--border); }
+      .row .grow { flex: 1; min-width: 0; }
+      .row small { display: block; color: var(--muted); font-size: 11px; margin-top: 2px; }
+
+      .btn {
+        padding: 7px 14px;
+        border-radius: 999px;
+        border: 1px solid var(--border);
+        font-family: var(--mono);
+        font-size: 11px;
+        white-space: nowrap;
+      }
+      .btn:hover { background: var(--hover); }
+      .btn.primary { background: var(--text); color: var(--bg-strong); border-color: var(--text); }
+      .btn.danger:hover { color: var(--accent); border-color: var(--accent); }
+      input[type='text'] {
+        width: 100%;
+        padding: 8px 12px;
+        font: inherit;
+        font-size: 13px;
+        color: var(--text);
+        background: var(--hover);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        outline: none;
+      }
+      input[type='text']:focus { border-color: var(--accent); }
+
+      /* Переключатель */
+      .switch { position: relative; width: 38px; height: 22px; flex: none; border-radius: 999px; background: var(--dot-off); transition: background 0.2s; }
+      .switch::after {
+        content: '';
+        position: absolute;
+        top: 3px;
+        left: 3px;
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        background: var(--text);
+        transition: transform 0.3s cubic-bezier(0.34, 1.45, 0.5, 1);
+      }
+      .switch.on { background: var(--accent); }
+      .switch.on::after { transform: translateX(16px); background: #fff; }
+
+      .segmented { display: inline-flex; border: 1px solid var(--border); border-radius: 999px; padding: 3px; gap: 2px; }
+      .segmented button { padding: 6px 14px; border-radius: 999px; font-size: 12px; color: var(--muted); }
+      .segmented button.active { background: var(--text); color: var(--bg-strong); }
+
+      .avatar {
+        flex: none;
+        border-radius: 50%;
+        background: var(--accent) center/cover;
+        color: #fff;
+        font-weight: 700;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .avatar.big { width: 88px; height: 88px; font-size: 34px; cursor: pointer; position: relative; }
+      .avatar.big::after {
+        content: 'Сменить';
+        position: absolute;
+        inset: 0;
+        border-radius: 50%;
+        background: rgba(0, 0, 0, 0.55);
+        color: #fff;
+        font-size: 11px;
+        font-weight: 400;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        opacity: 0;
+        transition: opacity 0.2s;
+      }
+      .avatar.big:hover::after { opacity: 1; }
+      .avatar.small { width: 28px; height: 28px; font-size: 12px; }
+      .badge { font-family: var(--mono); font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--accent); }
+
+      .walls { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 12px; }
+      .wall { border-radius: 12px; overflow: hidden; border: 2px solid transparent; cursor: pointer; transition: transform 0.25s cubic-bezier(0.34, 1.45, 0.5, 1), border-color 0.2s; }
+      .wall:hover { transform: translateY(-2px); }
+      .wall.active { border-color: var(--accent); }
+      .wall canvas, .wall .custom { display: block; width: 100%; aspect-ratio: 16 / 9; }
+      .wall .custom { display: flex; align-items: center; justify-content: center; background: var(--hover); color: var(--muted); font-size: 26px; }
+      .wall span { display: block; padding: 7px 10px; font-size: 12px; background: var(--hover); }
+      #wallStatus { margin-top: 10px; font-size: 12px; color: var(--muted); min-height: 16px; }
+
+      .results button { display: block; width: 100%; text-align: left; padding: 9px 16px; font-size: 13px; }
+      .results button:hover { background: var(--hover); }
+      .results button small { color: var(--muted); margin-left: 8px; }
+      kbd {
+        font-family: var(--mono);
+        font-size: 11px;
+        padding: 3px 8px;
+        border-radius: 6px;
+        border: 1px solid var(--border);
+        background: var(--hover);
+      }
+    </style>
+  </head>
+  <body>
+    <header><div class="logo">НАСТРОЙКИ</div></header>
+    <nav id="nav"></nav>
+    <main id="main"></main>
+    <script src="wallpaper.js"></script>
+    <script src="settings.js"></script>
+  </body>
+</html>

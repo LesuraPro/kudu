@@ -64,12 +64,26 @@
       #battery i b { display: block; height: 100%; border-radius: 1px; background: var(--text); }
       #battery.low i b { background: var(--accent); }
       #clock { font-weight: 600; letter-spacing: 0.04em; cursor: pointer; }
+      .avatar {
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        background: var(--accent) center/cover;
+        color: #fff;
+        font-style: normal;
+        font-size: 10px;
+        font-weight: 700;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+      }
     </style>
   </head>
   <body>
     <div id="bar">
       <div class="menu" id="logo" data-menu="familiar">FAMILIAR</div>
       <div class="menu" id="appName">Рабочий стол</div>
+      <div class="menu" id="filesBtn">Файлы</div>
       <div class="menu" data-menu="widgets">Виджеты</div>
       <div class="menu" data-menu="wallpaper">Обои</div>
       <div class="menu" data-menu="profile" id="profile">Профиль</div>

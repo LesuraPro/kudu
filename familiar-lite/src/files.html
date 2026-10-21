@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'" />
+    <title>Файлы</title>
+    <link rel="stylesheet" href="theme.css" />
+    <style>
+      html, body { height: 100%; }
+      body { display: grid; grid-template-columns: 200px 1fr; grid-template-rows: 44px 1fr 30px; background: var(--bg-strong); }
+
+      /* Шапка — за неё окно перетаскивается; справа место под кнопки Windows */
+      header {
+        grid-column: 1 / -1;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 0 150px 0 14px;
+        border-bottom: 1px solid var(--border);
+        -webkit-app-region: drag;
+      }
+      header button, header input { -webkit-app-region: no-drag; }
+      .logo { font-size: 11px; font-weight: 700; letter-spacing: 0.22em; display: flex; align-items: center; gap: 8px; width: 172px; flex: none; }
+      .logo::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
+      .nav { width: 28px; height: 28px; border-radius: 8px; color: var(--muted); font-size: 14px; }
+      .nav:hover:not(:disabled) { background: var(--hover); color: var(--text); }
+      .nav:disabled { opacity: 0.3; cursor: default; }
+      #crumbs { flex: 1; min-width: 0; display: flex; align-items: center; gap: 2px; overflow: hidden; white-space: nowrap; font-size: 12px; }
+      #crumbs button { padding: 4px 6px; border-radius: 6px; color: var(--muted); -webkit-app-region: no-drag; }
+      #crumbs button:last-child { color: var(--text); font-weight: 600; }
+      #crumbs button:hover { background: var(--hover); }
+      #crumbs span { color: var(--muted); opacity: 0.5; }
+      #q {
+        width: 180px;
+        padding: 6px 10px;
+        font: inherit;
+        font-size: 12px;
+        color: var(--text);
+        background: var(--hover);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        outline: none;
+      }
+      #q:focus { border-color: var(--accent); }
+      .view { display: flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+      .view button { width: 30px; height: 26px; color: var(--muted); }
+      .view button.active { background: var(--hover); color: var(--text); }
+
+      aside { border-right: 1px solid var(--border); padding: 12px 8px; overflow-y: auto; }
+      aside .label { padding: 0 8px 8px; }
+      aside button {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        width: 100%;
+        padding: 7px 10px;
+        border-radius: 8px;
+        font-family: var(--sans);
+        font-size: 13px;
+        text-align: left;
+        color: var(--muted);
+      }
+      aside button:hover { background: var(--hover); color: var(--text); }
+      aside button.active { background: var(--hover); color: var(--text); }
+      aside button.active::before { background: var(--accent); }
+      aside button::before { content: ''; width: 5px; height: 5px; border-radius: 50%; background: var(--dot-off); flex: none; }
+
+      main { overflow-y: auto; padding: 14px; outline: none; }
+      .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 6px; align-content: start; align-items: start; }
+      .grid .entry { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 10px 6px; border-radius: 10px; }
+      .grid .icon { width: 44px; height: 44px; }
+      .grid .name {
+        font-family: var(--sans);
+        font-size: 12px;
+        text-align: center;
+        line-height: 1.25;
+        max-width: 100%;
+        overflow: hidden;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        word-break: break-word;
+      }
+      .grid .meta { display: none; }
+      .list { display: flex; flex-direction: column; }
+      .list .entry { display: grid; grid-template-columns: 24px 1fr 90px 120px; align-items: center; gap: 12px; padding: 5px 10px; border-radius: 8px; }
+      .list .icon { width: 22px; height: 22px; }
+      .list .name { font-family: var(--sans); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .list .meta { font-size: 11px; color: var(--muted); text-align: right; white-space: nowrap; }
+      .entry { cursor: default; animation: pop 0.28s cubic-bezier(0.34, 1.45, 0.5, 1) both; }
+      .entry:hover { background: var(--hover); }
+      .entry.selected { background: var(--hover); box-shadow: inset 0 0 0 1px var(--accent); }
+      .icon { display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 26px; position: relative; flex: none; }
+      .icon img { width: 100%; height: 100%; object-fit: contain; }
+      .link .icon::after {
+        content: '↗';
+        position: absolute;
+        left: -4px;
+        bottom: -2px;
+        font-size: 9px;
+        padding: 1px 2px;
+        border-radius: 3px;
+        color: #fff;
+        background: var(--accent);
+      }
+      @keyframes pop { from { opacity: 0; transform: scale(0.92) translateY(4px); } }
+      .empty { color: var(--muted); font-size: 12px; padding: 30px; text-align: center; }
+
+      footer {
+        grid-column: 1 / -1;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 14px;
+        font-size: 10px;
+        letter-spacing: 0.06em;
+        color: var(--muted);
+        border-top: 1px solid var(--border);
+      }
+      footer button { color: var(--muted); }
+      footer button:hover { color: var(--text); }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="logo">ФАЙЛЫ</div>
+      <button class="nav" id="back" title="Назад (Alt+←)">←</button>
+      <button class="nav" id="forward" title="Вперёд (Alt+→)">→</button>
+      <button class="nav" id="up" title="Вверх (Backspace)">↑</button>
+      <div id="crumbs"></div>
+      <input id="q" placeholder="Поиск в папке" spellcheck="false" />
+      <div class="view"><button id="gridBtn" title="Значки">▦</button><button id="listBtn" title="Список">☰</button></div>
+    </header>
+    <aside>
+      <div class="label">Места</div>
+      <div id="places"></div>
+    </aside>
+    <main id="main" tabindex="0"></main>
+    <footer>
+      <span id="status"></span>
+      <button id="explorer">Перемещать и переименовывать — в Проводнике ↗</button>
+    </footer>
+    <script src="files.js"></script>
+  </body>
+</html>
