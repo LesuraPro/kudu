@@ -13,7 +13,7 @@ async function iconFor(item, el) {
   }
 }
 
-function makeItem({ name, onClick, onMenu, system, letter }) {
+function makeItem({ name, onClick, onMenu, system, letter, hwnds = [], foreground }) {
   const el = document.createElement('div')
   el.className = 'item' + (system ? ' system' : '')
   const fallback = document.createElement('div')
@@ -23,6 +23,12 @@ function makeItem({ name, onClick, onMenu, system, letter }) {
   tip.className = 'tip'
   tip.textContent = name
   el.append(fallback, tip)
+  // Точка под запущенным приложением, красная чёрточка — под активным
+  if (hwnds.length) {
+    const run = document.createElement('i')
+    run.className = 'run' + (hwnds.includes(foreground) ? ' front' : '')
+    el.appendChild(run)
+  }
   el.addEventListener('click', onClick)
   el.addEventListener('contextmenu', (e) => {
     e.preventDefault()
@@ -31,15 +37,20 @@ function makeItem({ name, onClick, onMenu, system, letter }) {
   return el
 }
 
+const divider = () => Object.assign(document.createElement('div'), { className: 'divider' })
+
 let dragFrom = null
 
-function render(config) {
+function render({ pinned, running, foreground }) {
   dock.replaceChildren()
 
-  config.pinned.forEach((app, i) => {
+  pinned.forEach((app, i) => {
     const el = makeItem({
       name: app.name,
-      onClick: () => window.familiar.launch(app),
+      hwnds: app.hwnds,
+      foreground,
+      // Уже запущено — переключаемся на окно, иначе запускаем
+      onClick: () => (app.hwnds.length ? window.familiar.focusWindow(app.hwnds) : window.familiar.launch(app)),
       onMenu: () => window.familiar.dockMenu(i)
     })
     iconFor(app, el)
@@ -60,14 +71,32 @@ function render(config) {
     dock.appendChild(el)
   })
 
-  if (config.pinned.length) {
-    const div = document.createElement('div')
-    div.className = 'divider'
-    dock.appendChild(div)
+  // Запущенные, но не закреплённые — после разделителя, как в macOS
+  if (running.length) {
+    if (pinned.length) dock.appendChild(divider())
+    for (const app of running) {
+      const el = makeItem({
+        name: app.name,
+        hwnds: app.hwnds,
+        foreground,
+        onClick: () => window.familiar.focusWindow(app.hwnds),
+        onMenu: () => window.familiar.dockMenu(-1, { name: app.name, path: app.path })
+      })
+      iconFor(app, el)
+      dock.appendChild(el)
+    }
   }
 
+  if (pinned.length || running.length) dock.appendChild(divider())
+
   dock.appendChild(
-    makeItem({ name: 'Поиск (Alt+Space)', letter: '⌕', system: true, onClick: () => window.familiar.toggleLauncher(), onMenu: () => window.familiar.dockMenu(-1) })
+    makeItem({
+      name: 'Поиск (Alt+Space)',
+      letter: '⌕',
+      system: true,
+      onClick: () => window.familiar.toggleLauncher(),
+      onMenu: () => window.familiar.dockMenu(-1)
+    })
   )
 }
 
@@ -97,5 +126,5 @@ document.addEventListener('drop', (e) => {
   }
 })
 
-window.familiar.getConfig().then(render)
-window.familiar.onConfigChanged(render)
+window.familiar.getDock().then(render)
+window.familiar.onDock(render)

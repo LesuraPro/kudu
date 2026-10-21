@@ -1,5 +1,5 @@
-// Главный процесс: создаёт окна (док, остров, виджеты, поиск), хранит настройки,
-// ищет установленные приложения, запускает их и узнаёт, какая музыка играет.
+// Главный процесс: создаёт окна (панель, остров, док, виджеты, поиск), хранит настройки
+// и связывает всё с системой. Работа с Windows и поиск вынесены в lib/.
 const {
   app,
   BrowserWindow,
@@ -15,32 +15,77 @@ const {
 } = require('electron')
 const path = require('path')
 const fs = require('fs')
-const os = require('os')
-const readline = require('readline')
 const { spawn } = require('child_process')
+const { pathToFileURL } = require('url')
+
+const { startBridge } = require('./lib/bridge')
+const { listApps, listFiles } = require('./lib/apps')
+const { startStats, systemInfo, readBatteries } = require('./lib/system')
+const { listGames, gameCover } = require('./lib/games')
 
 const isWin = process.platform === 'win32'
-// FAMILIAR_DEMO=1 — подставить выдуманный трек (удобно проверять без музыки)
+// FAMILIAR_DEMO=1 — выдуманные трек, окна, игры и наушники (удобно проверять без Windows)
 const isDemo = !!process.env.FAMILIAR_DEMO
+
+// ---------- Виджеты ----------
+
+// Каждый виджет — отдельное окно, которое можно таскать по рабочему столу.
+// Порядок здесь = порядок раскладки по умолчанию (справа налево, сверху вниз).
+const WIDGETS = {
+  clock: { title: 'Часы', width: 230, height: 250 },
+  weather: { title: 'Погода', width: 230, height: 180 },
+  reminders: { title: 'Напоминания', width: 230, height: 260 },
+  visualizer: { title: 'Визуализатор', width: 340, height: 400, resizable: true, minWidth: 140, minHeight: 140 },
+  cassette: { title: 'Кассета', width: 340, height: 280 },
+  eyes: { title: 'Глазки', width: 200, height: 200, resizable: true, minWidth: 110, minHeight: 110 },
+  system: { title: 'Нагрузка', width: 320, height: 210, resizable: true },
+  games: { title: 'Игры', width: 420, height: 320, resizable: true },
+  tty: { title: 'Терминал familiar-tty', width: 640, height: 420, resizable: true }
+}
+
+// Свои виджеты: любой .js в %APPDATA%\familiar-lite\widgets\ (см. README)
+const customDir = () => path.join(app.getPath('userData'), 'widgets')
+
+function seedCustomWidgets() {
+  const dir = customDir()
+  if (fs.existsSync(dir)) return
+  fs.mkdirSync(dir, { recursive: true })
+  for (const f of fs.readdirSync(path.join(__dirname, 'examples'))) {
+    fs.copyFileSync(path.join(__dirname, 'examples', f), path.join(dir, f))
+  }
+}
+
+function customWidgets() {
+  let files = []
+  try {
+    files = fs.readdirSync(customDir()).filter((f) => f.endsWith('.js'))
+  } catch {
+    return {}
+  }
+  return Object.fromEntries(
+    files.map((f) => {
+      const base = path.basename(f, '.js')
+      return [`custom:${base}`, { title: base, width: 240, height: 240, resizable: true, file: path.join(customDir(), f) }]
+    })
+  )
+}
+
+const allWidgets = () => ({ ...WIDGETS, ...customWidgets() })
 
 // ---------- Настройки (лежат в %APPDATA%\familiar-lite\config.json) ----------
 
-// Виджеты — отдельные окна, которые можно таскать по рабочему столу.
-// Размер и место каждого запоминаются.
-const WIDGETS = {
-  clock: { title: 'Часы', width: 230, height: 250 },
-  weather: { title: 'Погода', width: 260, height: 180 },
-  visualizer: { title: 'Визуализатор', width: 340, height: 400, resizable: true },
-  cassette: { title: 'Кассета', width: 380, height: 300 },
-  tty: { title: 'Терминал familiar-tty', width: 640, height: 420, resizable: true },
-  reminders: { title: 'Напоминания', width: 280, height: 260 }
-}
+const PROFILES = ['Основной', 'Учёба', 'Игры']
 
 const DEFAULT_CONFIG = {
   theme: 'dark', // system | light | dark
   // Воронеж по умолчанию — поменяй координаты под себя
   weather: { city: 'Воронеж', latitude: 51.67, longitude: 39.18 },
   island: true,
+  menubar: true,
+  wallpaper: null,
+  profile: PROFILES[0],
+  // У каждого профиля свои закреплённые приложения и виджеты
+  profiles: {},
   pinned: isWin
     ? [
         { name: 'Проводник', path: 'C:\\Windows\\explorer.exe' },
@@ -49,15 +94,14 @@ const DEFAULT_CONFIG = {
       ]
     : [],
   reminders: [],
-  widgets: Object.fromEntries(Object.keys(WIDGETS).map((name) => [name, { enabled: true }]))
+  widgets: {}
 }
 
 const configPath = () => path.join(app.getPath('userData'), 'config.json')
 
 function loadConfig() {
   try {
-    const saved = JSON.parse(fs.readFileSync(configPath(), 'utf8'))
-    return { ...DEFAULT_CONFIG, ...saved, widgets: { ...DEFAULT_CONFIG.widgets, ...saved.widgets } }
+    return { ...structuredClone(DEFAULT_CONFIG), ...JSON.parse(fs.readFileSync(configPath(), 'utf8')) }
   } catch {
     return structuredClone(DEFAULT_CONFIG)
   }
@@ -72,89 +116,10 @@ function saveConfig() {
 }
 
 function broadcast(channel, data) {
-  for (const w of BrowserWindow.getAllWindows()) w.webContents.send(channel, data)
+  for (const w of BrowserWindow.getAllWindows()) if (!w.isDestroyed()) w.webContents.send(channel, data)
 }
 
-// ---------- Поиск установленных приложений ----------
-
-// Windows: ярлыки .lnk из меню «Пуск» (общего и пользовательского)
-function windowsAppDirs() {
-  return [
-    path.join(process.env.ProgramData || 'C:\\ProgramData', 'Microsoft\\Windows\\Start Menu\\Programs'),
-    path.join(app.getPath('appData'), 'Microsoft\\Windows\\Start Menu\\Programs'),
-    app.getPath('desktop')
-  ]
-}
-
-function walk(dir, exts, out = [], depth = 0) {
-  if (depth > 4) return out
-  let entries
-  try {
-    entries = fs.readdirSync(dir, { withFileTypes: true })
-  } catch {
-    return out
-  }
-  for (const e of entries) {
-    const full = path.join(dir, e.name)
-    if (e.isDirectory()) walk(full, exts, out, depth + 1)
-    else if (exts.includes(path.extname(e.name).toLowerCase())) out.push(full)
-  }
-  return out
-}
-
-// Linux: файлы .desktop — только чтобы прототип можно было проверить не на винде
-function parseDesktopFile(file) {
-  const text = fs.readFileSync(file, 'utf8')
-  const section = text.split(/^\[/m).find((s) => s.startsWith('Desktop Entry]'))
-  if (!section || /^NoDisplay=true/m.test(section)) return null
-  const name = section.match(/^Name=(.*)$/m)?.[1]
-  const exec = section.match(/^Exec=(.*)$/m)?.[1]
-  if (!name || !exec) return null
-  return { name, path: file, exec: exec.replace(/%[a-zA-Z]/g, '').trim() }
-}
-
-let appCache = null
-
-function listApps() {
-  if (appCache) return appCache
-  let apps
-  if (isWin) {
-    apps = windowsAppDirs()
-      .flatMap((d) => walk(d, ['.lnk', '.url', '.exe']))
-      .map((p) => ({ name: path.basename(p, path.extname(p)), path: p }))
-      .filter((a) => !/uninstall|удал/i.test(a.name))
-  } else {
-    apps = walk('/usr/share/applications', ['.desktop'])
-      .map((p) => {
-        try {
-          return parseDesktopFile(p)
-        } catch {
-          return null
-        }
-      })
-      .filter(Boolean)
-  }
-  // Убираем дубли по имени и сортируем
-  const seen = new Set()
-  appCache = apps
-    .filter((a) => !seen.has(a.name.toLowerCase()) && seen.add(a.name.toLowerCase()))
-    .sort((a, b) => a.name.localeCompare(b.name))
-  return appCache
-}
-
-// Файлы с рабочего стола и из «Документов» тоже ищутся по Alt+Space
-function listFiles() {
-  const dirs = [app.getPath('desktop'), app.getPath('documents')]
-  return dirs
-    .flatMap((d) => {
-      try {
-        return fs.readdirSync(d, { withFileTypes: true }).map((e) => ({ name: e.name, path: path.join(d, e.name), isFile: true }))
-      } catch {
-        return []
-      }
-    })
-    .filter((f) => !f.name.startsWith('.') && !/\.(lnk|url|ini)$/i.test(f.name))
-}
+const widgetEnabled = (name) => config.widgets[name]?.enabled !== false
 
 // ---------- Запуск ----------
 
@@ -162,7 +127,7 @@ const isUri = (p) => /^[a-z][a-z0-9+.-]*:(?!\\)/i.test(p)
 
 async function launch(item) {
   if (isUri(item.path)) {
-    // URI: ms-settings:, https:// и т.п.
+    // URI: ms-settings:, steam://, https:// и т.п.
     await shell.openExternal(item.path)
   } else if (item.exec) {
     spawn(item.exec, { shell: true, detached: true, stdio: 'ignore' }).unref()
@@ -172,77 +137,114 @@ async function launch(item) {
   }
 }
 
-// ---------- Музыка: что сейчас играет ----------
-// На Windows спрашиваем систему через PowerShell (media.ps1), он работает
-// со Spotify, браузерами, Яндекс Музыкой — со всем, что видно в регуляторе громкости.
+// ---------- Мост к Windows: музыка и открытые окна ----------
 
+let bridge
 let media = { status: 'none' }
-let mediaProc = null
-let mediaRestarts = 0
+let openWindows = { list: [], foreground: 0 }
+let dockJson = ''
+let foreground = null
+let menubarHwnd = null
 
-function setMedia(next) {
-  // Обложку PowerShell присылает только при смене трека — сохраняем её
-  if (!('art' in next) && next.key === media.key) next.art = media.art
-  next.receivedAt = Date.now()
-  media = next
-  broadcast('media', media)
-}
-
-function startMedia() {
-  if (isDemo) return startDemoMedia()
-  if (!isWin) return
-
-  // Из asar-архива PowerShell файл не прочитает — копируем скрипт рядом с настройками
-  const script = path.join(app.getPath('userData'), 'media.ps1')
-  fs.mkdirSync(path.dirname(script), { recursive: true })
-  fs.writeFileSync(script, fs.readFileSync(path.join(__dirname, 'media.ps1')))
-
-  mediaProc = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', script], {
-    windowsHide: true
-  })
-  readline.createInterface({ input: mediaProc.stdout }).on('line', (line) => {
-    try {
-      setMedia(JSON.parse(line))
-    } catch {
-      // не JSON — пропускаем
-    }
-  })
-  mediaProc.stderr.on('data', (d) => console.error('[media]', String(d).trim()))
-  mediaProc.on('exit', () => {
-    mediaProc = null
-    setMedia({ status: 'none' })
-    // Пару раз пробуем перезапустить, дальше сдаёмся без спама
-    if (!app.isQuitting && mediaRestarts++ < 3) setTimeout(startMedia, 5000)
-  })
-}
-
-function startDemoMedia() {
-  let position = 35
-  let playing = true
-  const tracks = [
-    { title: 'zany', artist: 'DJ SENSX', album: 'zany', duration: 78 },
-    { title: 'Кукла колдуна', artist: 'Король и Шут', album: 'Акустический альбом', duration: 203 }
-  ]
-  let i = 0
-  const tick = () => {
-    if (playing) position += 1
-    if (position > tracks[i].duration) (i = (i + 1) % tracks.length), (position = 0)
-    const t = tracks[i]
-    setMedia({ status: playing ? 'playing' : 'paused', app: 'Spotify.exe', ...t, position, key: t.title, art: '' })
+function onBridgeMessage(msg) {
+  if (msg.type === 'media') {
+    // Обложку мост присылает только при смене трека — сохраняем её
+    if (!('art' in msg) && msg.key === media.key) msg.art = media.art
+    media = msg
+    broadcast('media', media)
+  } else if (msg.type === 'windows') {
+    // Свои окна (док, виджеты) в списке не нужны
+    const list = (msg.list ?? []).filter((w) => w.pid !== process.pid)
+    openWindows = { list, foreground: msg.foreground }
+    updateDock()
+    updateForeground()
+  } else if (msg.type === 'appbar' && menubarWin && !menubarWin.isDestroyed()) {
+    // Windows выделил полосу под панель — ставим окно ровно в неё
+    const [l, t, r, b] = msg.rect
+    menubarWin.setBounds(screen.screenToDipRect(menubarWin, { x: l, y: t, width: r - l, height: b - t }))
   }
-  ipcMain.on('demo:cmd', (_e, cmd) => {
-    if (cmd === 'toggle') playing = !playing
-    if (cmd === 'next') (i = (i + 1) % tracks.length), (position = 0)
-    if (cmd === 'prev') position = 0
-    tick()
-  })
-  tick()
-  setInterval(tick, 1000)
 }
 
-function mediaCommand(cmd) {
-  if (isDemo) return ipcMain.emit('demo:cmd', null, cmd)
-  mediaProc?.stdin.write(cmd + '\n')
+// «C:\…\Telegram.exe» → «Telegram»
+function appName(group) {
+  if (/applicationframehost\.exe$/i.test(group.path)) return group.title
+  const base = path.basename(group.path || group.title).replace(/\.exe$/i, '')
+  const known = { msedge: 'Edge', chrome: 'Chrome', firefox: 'Firefox', explorer: 'Проводник', code: 'VS Code', winword: 'Word' }
+  return known[base.toLowerCase()] ?? base.charAt(0).toUpperCase() + base.slice(1)
+}
+
+// Куда ведёт закреплённый ярлык — чтобы понять, что приложение уже запущено
+const targetCache = new Map()
+function pinnedTarget(item) {
+  if (!targetCache.has(item.path)) {
+    let target = item.path
+    if (isWin && /\.lnk$/i.test(target)) {
+      try {
+        target = shell.readShortcutLink(target).target || target
+      } catch {
+        // ярлык без цели (например, на UWP-приложение)
+      }
+    }
+    targetCache.set(item.path, target.toLowerCase())
+  }
+  return targetCache.get(item.path)
+}
+
+function groupWindows() {
+  const groups = new Map()
+  for (const w of openWindows.list) {
+    const key = (w.path || w.title).toLowerCase()
+    if (!groups.has(key)) groups.set(key, { path: w.path, title: w.title, hwnds: [] })
+    groups.get(key).hwnds.push(w.hwnd)
+  }
+  return groups
+}
+
+function dockState() {
+  const groups = groupWindows()
+  const pinned = config.pinned.map((p) => {
+    const g = groups.get(pinnedTarget(p))
+    if (g) g.claimed = true
+    return { ...p, hwnds: g?.hwnds ?? [] }
+  })
+  const running = [...groups.values()]
+    .filter((g) => !g.claimed && g.path)
+    .map((g) => ({ name: appName(g), path: g.path, hwnds: g.hwnds }))
+  return { pinned, running, foreground: openWindows.foreground }
+}
+
+// Док перерисовывается только когда что-то реально поменялось
+function updateDock() {
+  const state = dockState()
+  const json = JSON.stringify(state)
+  if (json === dockJson) return
+  dockJson = json
+  broadcast('dock', state)
+}
+
+function updateForeground() {
+  const w = openWindows.list.find((x) => x.hwnd === openWindows.foreground)
+  // Фокус на нашем окне (док, виджет) — оставляем прошлое приложение
+  if (!w && openWindows.list.length && foreground) return
+  const next = w ? { name: appName(w), title: w.title } : { name: 'Рабочий стол', title: '' }
+  if (JSON.stringify(next) === JSON.stringify(foreground)) return
+  foreground = next
+  broadcast('foreground', foreground)
+}
+
+// Клик по запущенному приложению: если окон несколько — листаем их по кругу
+function focusApp(hwnds) {
+  if (!hwnds?.length) return
+  const i = hwnds.indexOf(openWindows.foreground)
+  const target = i >= 0 && hwnds.length > 1 ? hwnds[(i + 1) % hwnds.length] : hwnds[0]
+  bridge.send(`focus ${target}`)
+}
+
+function pinItem(item) {
+  if (config.pinned.some((p) => p.path === item.path)) return
+  config.pinned.push({ name: item.name, path: item.path, exec: item.exec })
+  saveConfig()
+  updateDock()
 }
 
 // ---------- Окна ----------
@@ -255,19 +257,17 @@ const webPreferences = {
   backgroundThrottling: false // анимации не должны замирать, когда окно не в фокусе
 }
 
-let dockWin, launcherWin, islandWin
+let dockWin, launcherWin, islandWin, menubarWin
 const widgetWins = {}
 let widgetsHidden = false
 
 const DOCK_HEIGHT = 120
+const MENUBAR_HEIGHT = 30
 
-function createDock() {
-  const { workArea } = screen.getPrimaryDisplay()
-  dockWin = new BrowserWindow({
-    x: workArea.x,
-    y: workArea.y + workArea.height - DOCK_HEIGHT,
-    width: workArea.width,
-    height: DOCK_HEIGHT,
+// Окно-«оверлей»: без рамки, прозрачное, поверх всех, клики насквозь
+function overlay(bounds, file) {
+  const win = new BrowserWindow({
+    ...bounds,
     frame: false,
     transparent: true,
     resizable: false,
@@ -277,21 +277,38 @@ function createDock() {
     focusable: false,
     webPreferences
   })
-  dockWin.setAlwaysOnTop(true, 'screen-saver')
-  // Прозрачные участки окна пропускают клики к окнам под ним
-  dockWin.setIgnoreMouseEvents(true, { forward: true })
-  dockWin.loadFile(path.join(SRC, 'dock.html'))
+  win.setAlwaysOnTop(true, 'screen-saver')
+  win.setIgnoreMouseEvents(true, { forward: true })
+  win.loadFile(path.join(SRC, file))
+  return win
 }
 
-// «Остров» сверху по центру: пилюля, которая раскрывается в плеер
-function createIsland() {
+function dockBounds() {
   const { workArea } = screen.getPrimaryDisplay()
+  return { x: workArea.x, y: workArea.y + workArea.height - DOCK_HEIGHT, width: workArea.width, height: DOCK_HEIGHT }
+}
+
+function createDock() {
+  dockWin = overlay(dockBounds(), 'dock.html')
+}
+
+// «Остров» сверху по центру: пилюля, которая раскрывается в плеер. Сидит прямо в верхней панели
+function createIsland() {
+  const { bounds } = screen.getPrimaryDisplay()
   const width = 480
-  islandWin = new BrowserWindow({
-    x: workArea.x + Math.round((workArea.width - width) / 2),
-    y: workArea.y,
-    width,
-    height: 260,
+  islandWin = overlay({ x: bounds.x + Math.round((bounds.width - width) / 2), y: bounds.y, width, height: 260 }, 'island.html')
+  if (!config.island) islandWin.hide()
+}
+
+// Верхняя панель как в macOS. На Windows просим систему отдать ей полосу экрана
+// (AppBar), чтобы развёрнутые окна не заезжали под неё
+function createMenubar() {
+  const { bounds } = screen.getPrimaryDisplay()
+  menubarWin = new BrowserWindow({
+    x: bounds.x,
+    y: bounds.y,
+    width: bounds.width,
+    height: MENUBAR_HEIGHT,
     frame: false,
     transparent: true,
     resizable: false,
@@ -301,9 +318,20 @@ function createIsland() {
     focusable: false,
     webPreferences
   })
-  islandWin.setAlwaysOnTop(true, 'screen-saver')
-  islandWin.setIgnoreMouseEvents(true, { forward: true })
-  islandWin.loadFile(path.join(SRC, 'island.html'))
+  menubarWin.setAlwaysOnTop(true, 'screen-saver')
+  menubarWin.loadFile(path.join(SRC, 'menubar.html'))
+  if (isWin) {
+    menubarHwnd = menubarWin.getNativeWindowHandle().readBigUInt64LE(0).toString()
+    const r = screen.dipToScreenRect(menubarWin, { x: bounds.x, y: bounds.y, width: bounds.width, height: MENUBAR_HEIGHT })
+    bridge.send(`appbar ${menubarHwnd} ${r.x} ${r.y} ${r.x + r.width} ${r.height}`)
+  }
+}
+
+function destroyMenubar() {
+  if (menubarHwnd) bridge.send(`appbar-remove ${menubarHwnd}`)
+  menubarHwnd = null
+  menubarWin?.destroy()
+  menubarWin = null
 }
 
 function createLauncher() {
@@ -326,34 +354,35 @@ function createLauncher() {
   launcherWin.on('blur', () => launcherWin.hide())
 }
 
-// Раскладка по умолчанию: две колонки у правого края экрана
+// Раскладка по умолчанию: колонки от правого края, пока влезает по высоте
 function defaultBounds(name) {
   const { workArea } = screen.getPrimaryDisplay()
   const gap = 16
-  const right = workArea.x + workArea.width - gap
-  const col1 = ['clock', 'weather', 'reminders']
-  const col2 = ['visualizer', 'cassette']
-  const { width, height } = WIDGETS[name]
-  const stackY = (list) => {
-    let y = workArea.y + 70 // ниже острова
-    for (const n of list) {
-      if (n === name) break
-      y += WIDGETS[n].height + gap
+  const top = workArea.y + 16
+  let x = workArea.x + workArea.width - gap
+  let y = top
+  let colWidth = 0
+  for (const [n, def] of Object.entries(allWidgets())) {
+    if (!widgetEnabled(n) && n !== name) continue
+    if (y + def.height > workArea.y + workArea.height - DOCK_HEIGHT && y > top) {
+      x -= colWidth + gap
+      y = top
+      colWidth = 0
     }
-    return y
+    if (n === name) return { x: Math.max(workArea.x, x - def.width), y, width: def.width, height: def.height }
+    y += def.height + gap
+    colWidth = Math.max(colWidth, def.width)
   }
-  if (col1.includes(name)) return { x: right - width, y: stackY(col1), width, height }
-  if (col2.includes(name)) return { x: right - 280 - gap - width, y: stackY(col2), width, height }
-  return { x: workArea.x + 40, y: workArea.y + 70, width, height }
+  return { x: workArea.x + 40, y: top, width: 300, height: 300 }
 }
 
 function createWidget(name) {
-  const def = WIDGETS[name]
+  const def = allWidgets()[name]
   const bounds = config.widgets[name]?.bounds ?? defaultBounds(name)
   const win = new BrowserWindow({
     ...bounds,
-    minWidth: 200,
-    minHeight: 160,
+    minWidth: def.minWidth ?? 200,
+    minHeight: def.minHeight ?? 160,
     frame: false,
     transparent: true,
     resizable: !!def.resizable,
@@ -362,7 +391,8 @@ function createWidget(name) {
     show: false,
     webPreferences
   })
-  win.loadFile(path.join(SRC, 'widget.html'), { query: { type: name } })
+  const query = def.file ? { type: path.basename(def.file, '.js'), custom: pathToFileURL(def.file).href } : { type: name }
+  win.loadFile(path.join(SRC, 'widget.html'), { query })
   win.once('ready-to-show', () => !widgetsHidden && win.showInactive())
 
   // Запоминаем, куда виджет перетащили и какого размера сделали
@@ -377,15 +407,24 @@ function createWidget(name) {
   }
   win.on('moved', remember)
   win.on('resized', remember)
-  win.on('closed', () => delete widgetWins[name])
+  win.on('closed', () => widgetWins[name] === win && delete widgetWins[name])
   widgetWins[name] = win
 }
 
 function syncWidgets() {
-  for (const name of Object.keys(WIDGETS)) {
-    const enabled = config.widgets[name]?.enabled !== false
-    if (enabled && !widgetWins[name]) createWidget(name)
-    if (!enabled && widgetWins[name]) widgetWins[name].close()
+  const all = allWidgets()
+  for (const name of Object.keys(all)) {
+    if (widgetEnabled(name) && !widgetWins[name]) createWidget(name)
+    if (!widgetEnabled(name) && widgetWins[name]) widgetWins[name].close()
+  }
+  // Файл своего виджета удалили — закрываем окно
+  for (const name of Object.keys(widgetWins)) if (!all[name]) widgetWins[name].close()
+}
+
+function closeAllWidgets() {
+  for (const [name, win] of Object.entries(widgetWins)) {
+    delete widgetWins[name]
+    win.destroy()
   }
 }
 
@@ -401,36 +440,163 @@ function toggleWidgets() {
   for (const w of Object.values(widgetWins)) widgetsHidden ? w.hide() : w.showInactive()
 }
 
-function systemInfo() {
-  const { workArea, size } = screen.getPrimaryDisplay()
-  const cpus = os.cpus()
-  return {
-    user: os.userInfo().username,
-    host: os.hostname(),
-    os: isWin ? `Windows ${os.release()}` : `${os.type()} ${os.release()}`,
-    arch: os.arch(),
-    cpu: cpus[0]?.model.replace(/\s+/g, ' ').trim() ?? '?',
-    cores: cpus.length,
-    memTotal: os.totalmem(),
-    memFree: os.freemem(),
-    uptime: os.uptime(),
-    resolution: `${size.width}x${size.height}`,
-    workArea: `${workArea.width}x${workArea.height}`,
-    electron: process.versions.electron,
-    node: process.versions.node
+// ---------- Профили ----------
+
+function switchProfile(name) {
+  if (name === config.profile) return
+  config.profiles[config.profile] = { pinned: config.pinned, widgets: config.widgets }
+  // Новый профиль начинается копией текущего
+  const next = config.profiles[name] ?? structuredClone({ pinned: config.pinned, widgets: config.widgets })
+  config.profile = name
+  config.pinned = next.pinned
+  config.widgets = next.widgets
+  saveConfig()
+  closeAllWidgets()
+  syncWidgets()
+  updateDock()
+}
+
+// ---------- Обои ----------
+
+const WALLPAPERS = { planet: 'Красная планета', grid: 'Точечная сетка', horizon: 'Горизонт', paper: 'Светлая бумага' }
+
+// Рисуем обои в скрытом окне на canvas под разрешение экрана и ставим через мост
+async function applyWallpaper(style) {
+  const d = screen.getPrimaryDisplay()
+  const w = Math.round(d.size.width * d.scaleFactor)
+  const h = Math.round(d.size.height * d.scaleFactor)
+  const win = new BrowserWindow({ show: false, width: 200, height: 200, webPreferences })
+  try {
+    await win.loadFile(path.join(SRC, 'wallpaper.html'), { query: { style, w: String(w), h: String(h) } })
+    const dataUrl = await win.webContents.executeJavaScript('window.renderWallpaper()')
+    const dir = path.join(app.getPath('userData'), 'wallpapers')
+    fs.mkdirSync(dir, { recursive: true })
+    const file = path.join(dir, `${style}-${w}x${h}.png`)
+    fs.writeFileSync(file, Buffer.from(dataUrl.split(',')[1], 'base64'))
+    config.wallpaper = style
+    saveConfig()
+    if (isWin) bridge.send(`wallpaper ${file}`)
+    else shell.showItemInFolder(file)
+    return file
+  } finally {
+    win.destroy()
   }
+}
+
+// ---------- Меню ----------
+
+const menus = {
+  widgets: () => [
+    ...Object.entries(allWidgets()).map(([name, def]) => ({
+      label: def.file ? `${def.title} (свой)` : def.title,
+      type: 'checkbox',
+      checked: widgetEnabled(name),
+      click: (item) => {
+        config.widgets[name] = { ...config.widgets[name], enabled: item.checked }
+        saveConfig()
+        syncWidgets()
+      }
+    })),
+    { type: 'separator' },
+    { label: 'Показать/скрыть все (Alt+W)', click: toggleWidgets },
+    {
+      label: 'Вернуть раскладку по умолчанию',
+      click: () => {
+        for (const name of Object.keys(config.widgets)) delete config.widgets[name].bounds
+        for (const [name, win] of Object.entries(widgetWins)) win.setBounds(defaultBounds(name))
+        saveConfig()
+      }
+    },
+    { label: 'Папка своих виджетов…', click: () => shell.openPath(customDir()) },
+    { label: 'Обновить свои виджеты', click: syncWidgets }
+  ],
+  wallpaper: () =>
+    Object.entries(WALLPAPERS).map(([style, label]) => ({
+      label,
+      type: 'radio',
+      checked: config.wallpaper === style,
+      click: () => applyWallpaper(style).catch((e) => console.error('Обои:', e))
+    })),
+  profile: () =>
+    PROFILES.map((name) => ({ label: name, type: 'radio', checked: config.profile === name, click: () => switchProfile(name) })),
+  theme: () =>
+    ['system', 'light', 'dark'].map((t) => ({
+      label: { system: 'Как в системе', light: 'Светлая', dark: 'Тёмная' }[t],
+      type: 'radio',
+      checked: config.theme === t,
+      click: () => setTheme(t)
+    })),
+  familiar: () => [
+    { label: 'Поиск (Alt+Space)', click: toggleLauncher },
+    {
+      label: 'Остров сверху',
+      type: 'checkbox',
+      checked: config.island,
+      click: (item) => {
+        config.island = item.checked
+        saveConfig()
+        item.checked ? islandWin.showInactive() : islandWin.hide()
+      }
+    },
+    {
+      label: 'Верхняя панель',
+      type: 'checkbox',
+      checked: config.menubar,
+      click: (item) => {
+        config.menubar = item.checked
+        saveConfig()
+        item.checked ? createMenubar() : destroyMenubar()
+      }
+    },
+    { label: 'Открыть файл настроек', click: () => shell.openPath(configPath()) },
+    { type: 'separator' },
+    { label: 'Выйти', click: () => app.quit() }
+  ]
+}
+
+function setTheme(t) {
+  config.theme = t
+  nativeTheme.themeSource = t
+  saveConfig()
+}
+
+function fullMenu(index, running) {
+  return [
+    running
+      ? { label: `Закрепить «${running.name}» в доке`, click: () => pinItem(running) }
+      : { label: 'Открепить из дока', enabled: index >= 0, click: () => (config.pinned.splice(index, 1), saveConfig(), updateDock()) },
+    { type: 'separator' },
+    { label: 'Виджеты', submenu: menus.widgets() },
+    { label: 'Обои', submenu: menus.wallpaper() },
+    { label: `Профиль: ${config.profile}`, submenu: menus.profile() },
+    { label: 'Тема', submenu: menus.theme() },
+    { type: 'separator' },
+    ...menus.familiar()
+  ]
 }
 
 // ---------- IPC: что окна могут попросить у главного процесса ----------
 
+let stats = { cpu: 0, mem: 0 }
+let devices = []
+
 function registerIpc() {
   ipcMain.handle('config:get', () => config)
-  ipcMain.handle('apps:list', () => listApps())
-  ipcMain.handle('files:list', () => listFiles())
+  ipcMain.handle('apps:list', () => listApps(app))
+  ipcMain.handle('files:list', () => listFiles(app))
+  ipcMain.handle('games:list', () => listGames(isDemo))
+  ipcMain.handle('game:cover', (_e, id) => gameCover(listGames(isDemo).find((g) => g.id === id)))
   ipcMain.handle('launch', (_e, item) => launch(item))
-  ipcMain.handle('sysinfo', () => systemInfo())
+  ipcMain.handle('sysinfo', () => systemInfo(screen))
   ipcMain.handle('media:get', () => media)
-  ipcMain.on('media:cmd', (_e, cmd) => mediaCommand(cmd))
+  ipcMain.on('media:cmd', (_e, cmd) => bridge.send(cmd))
+  ipcMain.handle('dock:get', () => dockState())
+  ipcMain.handle('foreground:get', () => foreground)
+  ipcMain.handle('stats:get', () => stats)
+  ipcMain.handle('devices:get', () => devices)
+  ipcMain.handle('cursor:get', () => screen.getCursorScreenPoint())
+  ipcMain.on('window:focus', (_e, hwnds) => focusApp(hwnds))
+  ipcMain.on('theme:toggle', () => setTheme(nativeTheme.shouldUseDarkColors ? 'light' : 'dark'))
 
   ipcMain.handle('icon', async (_e, p) => {
     if (isUri(p)) return null
@@ -441,79 +607,24 @@ function registerIpc() {
     }
   })
 
-  ipcMain.handle('dock:pin', (_e, item) => {
-    if (!config.pinned.some((p) => p.path === item.path)) {
-      config.pinned.push({ name: item.name, path: item.path, exec: item.exec })
-      saveConfig()
-    }
-  })
+  ipcMain.handle('dock:pin', (_e, item) => pinItem(item))
 
   ipcMain.handle('dock:reorder', (_e, from, to) => {
     const [moved] = config.pinned.splice(from, 1)
     config.pinned.splice(to, 0, moved)
     saveConfig()
+    updateDock()
   })
 
-  ipcMain.on('dock:menu', (e, index) => {
-    const template = [
-      { label: 'Открепить из дока', enabled: index >= 0, click: () => (config.pinned.splice(index, 1), saveConfig()) },
-      { type: 'separator' },
-      { label: 'Поиск (Alt+Space)', click: toggleLauncher },
-      { label: 'Показать/скрыть виджеты (Alt+W)', click: toggleWidgets },
-      {
-        label: 'Виджеты',
-        submenu: [
-          ...Object.entries(WIDGETS).map(([name, def]) => ({
-            label: def.title,
-            type: 'checkbox',
-            checked: config.widgets[name]?.enabled !== false,
-            click: (item) => {
-              config.widgets[name] = { ...config.widgets[name], enabled: item.checked }
-              saveConfig()
-              syncWidgets()
-            }
-          })),
-          { type: 'separator' },
-          {
-            label: 'Вернуть раскладку по умолчанию',
-            click: () => {
-              for (const [name, win] of Object.entries(widgetWins)) {
-                delete config.widgets[name].bounds
-                win.setBounds(defaultBounds(name))
-              }
-              saveConfig()
-            }
-          }
-        ]
-      },
-      {
-        label: 'Остров сверху',
-        type: 'checkbox',
-        checked: config.island,
-        click: (item) => {
-          config.island = item.checked
-          saveConfig()
-          item.checked ? islandWin.showInactive() : islandWin.hide()
-        }
-      },
-      {
-        label: 'Тема',
-        submenu: ['system', 'light', 'dark'].map((t) => ({
-          label: { system: 'Как в системе', light: 'Светлая', dark: 'Тёмная' }[t],
-          type: 'radio',
-          checked: config.theme === t,
-          click: () => {
-            config.theme = t
-            nativeTheme.themeSource = t
-            saveConfig()
-          }
-        }))
-      },
-      { label: 'Открыть файл настроек', click: () => shell.openPath(configPath()) },
-      { type: 'separator' },
-      { label: 'Выйти', click: () => app.quit() }
-    ]
-    Menu.buildFromTemplate(template).popup({ window: BrowserWindow.fromWebContents(e.sender) })
+  ipcMain.on('dock:menu', (e, index, running) => {
+    Menu.buildFromTemplate(fullMenu(index, running)).popup({ window: BrowserWindow.fromWebContents(e.sender) })
+  })
+
+  // Пункты верхней панели открывают свои подменю прямо под собой
+  ipcMain.on('menubar:menu', (e, name, x) => {
+    const template = menus[name]?.()
+    if (!template) return
+    Menu.buildFromTemplate(template).popup({ window: BrowserWindow.fromWebContents(e.sender), x: Math.round(x), y: MENUBAR_HEIGHT })
   })
 
   // Окно-«оверлей» (док, остров) говорит, когда мышь над его видимой частью —
@@ -556,6 +667,11 @@ function enableLoopbackAudio() {
   )
 }
 
+async function pollDevices() {
+  devices = await readBatteries(isDemo)
+  broadcast('devices', devices)
+}
+
 // ---------- Старт ----------
 
 // Второй экземпляр не запускаем — просто открываем поиск в первом
@@ -567,28 +683,40 @@ if (!app.requestSingleInstanceLock()) {
   app.whenReady().then(() => {
     config = loadConfig()
     nativeTheme.themeSource = config.theme
+    seedCustomWidgets()
     registerIpc()
     enableLoopbackAudio()
-    startMedia()
+    bridge = startBridge({ app, isDemo, onMessage: onBridgeMessage })
+
+    if (config.menubar) createMenubar()
     createDock()
     createIsland()
-    if (!config.island) islandWin.hide()
     createLauncher()
     syncWidgets()
+
+    // Панель заняла полосу сверху или поменялось разрешение — двигаем док к низу
+    screen.on('display-metrics-changed', () => dockWin.setBounds(dockBounds()))
+
+    startStats((s) => {
+      stats = s
+      broadcast('stats', s)
+    })
+    setTimeout(pollDevices, 3000)
+    setInterval(pollDevices, 2 * 60 * 1000)
 
     if (!globalShortcut.register('Alt+Space', toggleLauncher)) {
       console.warn('Alt+Space занят другой программой (например, PowerToys Run)')
     }
     globalShortcut.register('Alt+W', toggleWidgets)
 
-    // Список приложений собираем заранее, чтобы поиск открывался мгновенно
-    setTimeout(listApps, 1000)
+    // Список приложений и игр собираем заранее, чтобы поиск открывался мгновенно
+    setTimeout(() => {
+      listApps(app)
+      listGames(isDemo)
+    }, 1000)
   })
 
-  app.on('before-quit', () => {
-    app.isQuitting = true
-    mediaProc?.stdin.end()
-  })
+  app.on('before-quit', () => bridge?.stop())
   app.on('will-quit', () => globalShortcut.unregisterAll())
   app.on('window-all-closed', () => app.quit())
 }

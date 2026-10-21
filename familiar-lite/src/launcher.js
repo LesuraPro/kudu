@@ -41,7 +41,7 @@ function render() {
       name.textContent = it.name
       const kind = document.createElement('div')
       kind.className = 'kind'
-      kind.textContent = it.isFile ? 'Файл' : 'Приложение'
+      kind.textContent = it.store ? `Игра · ${it.store}` : it.isFile ? 'Файл' : 'Приложение'
       row.append(ph, name, kind)
       row.addEventListener('click', () => open(it))
       row.addEventListener('mousemove', () => {
@@ -62,8 +62,9 @@ function render() {
   list.children[active]?.scrollIntoView({ block: 'nearest' })
 }
 
+// У игр вместо иконки — обложка из кэша Steam
 function loadIcon(it) {
-  if (!iconCache.has(it.path)) iconCache.set(it.path, window.familiar.icon(it.path))
+  if (!iconCache.has(it.path)) iconCache.set(it.path, it.store ? window.familiar.gameCover(it.id) : window.familiar.icon(it.path))
   return iconCache.get(it.path)
 }
 
@@ -92,8 +93,8 @@ q.addEventListener('keydown', (e) => {
 })
 
 async function reload() {
-  const [apps, files] = await Promise.all([window.familiar.listApps(), window.familiar.listFiles()])
-  items = [...apps, ...files]
+  const [apps, games, files] = await Promise.all([window.familiar.listApps(), window.familiar.listGames(), window.familiar.listFiles()])
+  items = [...apps, ...games, ...files]
 }
 
 window.familiar.onLauncherOpened(async () => {

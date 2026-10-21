@@ -5,15 +5,16 @@
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'" />
     <link rel="stylesheet" href="theme.css" />
     <style>
-      body { height: 100vh; display: flex; justify-content: center; align-items: flex-start; padding-top: 8px; }
+      /* Свёрнутая пилюля помещается в верхнюю панель (30px) */
+      body { height: 100vh; display: flex; justify-content: center; align-items: flex-start; padding-top: 2px; }
 
       /* Остров всегда чёрный — как вырез в экране */
       #island {
         --spring: cubic-bezier(0.34, 1.45, 0.5, 1);
         position: relative;
         width: 210px;
-        height: 36px;
-        border-radius: 18px;
+        height: 26px;
+        border-radius: 13px;
         background: #000;
         color: #f2f2f2;
         border: 1px solid rgba(255, 255, 255, 0.08);
@@ -35,19 +36,19 @@
         transition: opacity 0.2s, transform 0.35s;
       }
       #island.open #mini { opacity: 0; transform: scale(0.9); pointer-events: none; }
-      #miniArt { width: 22px; height: 22px; flex: none; border-radius: 6px; background: #1a1a1a center/cover; }
+      #miniArt { width: 18px; height: 18px; flex: none; border-radius: 5px; background: #1a1a1a center/cover; }
       #miniArt.empty { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); margin: 0 7px; }
-      #miniDots { flex: 1; height: 21px; }
+      #miniDots { flex: 1; height: 14px; }
 
       /* Эквалайзер из точек */
-      .eq { display: flex; gap: 3px; align-items: center; height: 20px; flex: none; }
+      .eq { display: flex; gap: 3px; align-items: center; height: 16px; flex: none; }
       .eq i { display: block; width: 3px; height: 4px; border-radius: 2px; background: #f2f2f2; }
       .eq i:nth-child(2) { background: var(--accent); }
       .playing .eq i { animation: eq 0.9s ease-in-out infinite alternate; }
       .eq i:nth-child(2) { animation-delay: -0.3s !important; }
       .eq i:nth-child(3) { animation-delay: -0.6s !important; }
       .eq i:nth-child(4) { animation-delay: -0.15s !important; }
-      @keyframes eq { 0% { height: 4px; } 50% { height: 16px; } 100% { height: 8px; } }
+      @keyframes eq { 0% { height: 3px; } 50% { height: 14px; } 100% { height: 7px; } }
 
       /* Развёрнутое состояние */
       #full {
@@ -67,6 +68,8 @@
       .tabs button { color: #6f6f75; padding: 0; }
       .tabs button.active { color: #f2f2f2; font-weight: 600; }
       .tabs .spacer { flex: 1; }
+      #theme { color: #a0a0a5; font-size: 14px; line-height: 1; padding: 0 4px; }
+      #theme:hover { color: #f2f2f2; }
 
       .page { display: none; flex: 1; }
       .page.active { display: flex; }
@@ -112,7 +115,8 @@
       .footer button { color: inherit; padding: 0; }
       .footer button:hover { color: #f2f2f2; }
 
-      #devices { flex-direction: column; justify-content: center; gap: 14px; padding-top: 10px; }
+      #devices { flex-direction: column; justify-content: center; gap: 12px; padding-top: 10px; }
+      #btDevices { display: flex; flex-direction: column; gap: 12px; }
       .device { display: flex; align-items: center; gap: 14px; font-family: var(--sans); font-size: 14px; }
       .device .cells { display: flex; gap: 3px; }
       .device .cells i { width: 7px; height: 14px; border-radius: 2px; background: rgba(255, 255, 255, 0.12); }
@@ -134,6 +138,7 @@
           <button data-page="music" class="active">Музыка</button>
           <button data-page="devices">Устройства</button>
           <span class="spacer"></span>
+          <button id="theme" title="Светлая / тёмная тема">☾</button>
           <div class="eq"><i></i><i></i><i></i><i></i></div>
         </div>
 
@@ -163,10 +168,8 @@
             <div class="cells"></div>
             <div><div id="batteryName">Этот компьютер</div><small id="batteryText">Нет данных о батарее</small></div>
           </div>
-          <div class="device">
-            <div class="cells"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i></div>
-            <div><div>Звук системы</div><small id="audioSource">—</small></div>
-          </div>
+          <!-- Bluetooth-устройства с зарядом (наушники, мышки) дорисовывает island.js -->
+          <div id="btDevices"></div>
         </div>
       </div>
     </div>

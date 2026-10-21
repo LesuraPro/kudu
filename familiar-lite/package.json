@@ -16,7 +16,7 @@
   "build": {
     "appId": "local.familiar-lite",
     "productName": "Familiar Lite",
-    "files": ["main.js", "preload.js", "src/**/*"],
+    "files": ["main.js", "preload.js", "bridge.ps1", "lib/**/*", "src/**/*", "examples/**/*"],
     "win": { "target": "portable" }
   }
 }

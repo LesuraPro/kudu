@@ -65,20 +65,26 @@ $('remindersBtn').addEventListener('click', () => window.familiar.toggleWidgets(
 
 // ---------- Устройства ----------
 
+// Пять «ячеек» заряда; при 20% и меньше — красные
+function cells(level) {
+  const pct = Math.round(level * 100)
+  const box = document.createElement('div')
+  box.className = 'cells'
+  for (let i = 0; i < 5; i++) {
+    const el = document.createElement('i')
+    if (i < Math.ceil(level * 5)) el.className = pct <= 20 ? 'low' : 'on'
+    box.appendChild(el)
+  }
+  return box
+}
+
 async function initBattery() {
   if (!navigator.getBattery) return
   const b = await navigator.getBattery()
   const update = () => {
     const pct = Math.round(b.level * 100)
     const desktop = b.charging && b.level === 1 && b.chargingTime === 0
-    const cells = document.querySelector('#battery .cells')
-    cells.replaceChildren(
-      ...Array.from({ length: 5 }, (_, i) => {
-        const el = document.createElement('i')
-        if (i < Math.ceil(b.level * 5)) el.className = pct <= 20 ? 'low' : 'on'
-        return el
-      })
-    )
+    document.querySelector('#battery .cells').replaceWith(cells(b.level))
     $('batteryText').textContent = desktop ? 'Питание от сети' : `${pct}%${b.charging ? ' · заряжается' : ''}`
   }
   update()
@@ -86,7 +92,30 @@ async function initBattery() {
   b.addEventListener('chargingchange', update)
 }
 initBattery()
-$('audioSource').textContent = navigator.platform.startsWith('Win') ? 'Системный медиаплеер Windows' : 'Демо-режим'
+
+function showDevices(list) {
+  $('btDevices').replaceChildren(
+    ...list.map((d) => {
+      const row = document.createElement('div')
+      row.className = 'device'
+      const text = document.createElement('div')
+      const name = document.createElement('div')
+      name.textContent = d.name
+      const small = document.createElement('small')
+      small.textContent = `${d.battery}% · Bluetooth`
+      text.append(name, small)
+      row.append(cells(d.battery / 100), text)
+      return row
+    })
+  )
+}
+window.familiar.getDevices().then(showDevices)
+window.familiar.onDevices(showDevices)
+
+$('theme').addEventListener('click', (e) => {
+  e.stopPropagation()
+  window.familiar.toggleTheme()
+})
 
 // ---------- Анимация: точечные часы / бегущая строка ----------
 
@@ -102,7 +131,7 @@ function frame(now) {
   // Свёрнутый остров: если играет музыка — бегущая строка, иначе часы
   const { ctx, w, h } = Dot.fit(mini)
   ctx.clearRect(0, 0, w, h)
-  const pitch = 3
+  const pitch = 2
   const on = '#f2f2f2'
   const off = 'rgba(255,255,255,0.08)'
   if (Media.playing()) {

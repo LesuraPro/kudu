@@ -66,16 +66,17 @@
       .item.drop-target { outline: 2px dashed var(--accent); outline-offset: 2px; }
       .divider { width: 1px; align-self: stretch; margin: 6px 4px; background: var(--border); }
       .item.system .letter { background: var(--hover); font-size: 20px; }
-      /* Красная точка под кнопкой поиска — фирменный акцент */
-      .item.system::after {
-        content: '';
+      /* Индикатор запущенного приложения; у активного — красная чёрточка */
+      .item .run {
         position: absolute;
-        bottom: -5px;
+        bottom: -6px;
         width: 4px;
         height: 4px;
         border-radius: 50%;
-        background: var(--accent);
+        background: var(--text);
+        transition: width 0.25s, background 0.25s;
       }
+      .item .run.front { width: 12px; border-radius: 2px; background: var(--accent); }
     </style>
   </head>
   <body>

@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'" />
+    <link rel="stylesheet" href="theme.css" />
+    <style>
+      body { height: 100vh; }
+      #bar {
+        height: 100%;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        padding: 0 10px;
+        font-size: 12px;
+        background: var(--bg);
+        backdrop-filter: blur(24px) saturate(160%);
+        border-bottom: 1px solid var(--border);
+      }
+      .menu {
+        height: 22px;
+        padding: 0 9px;
+        border-radius: 6px;
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        white-space: nowrap;
+      }
+      .menu:hover { background: var(--hover); }
+      #logo { font-weight: 700; letter-spacing: 0.22em; font-size: 11px; }
+      #logo::before {
+        content: '';
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: var(--accent);
+      }
+      #appName { font-family: var(--sans); font-weight: 600; max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
+      .spacer { flex: 1; }
+      .muted { color: var(--muted); }
+
+      /* Правая часть: статусы */
+      .stat { display: flex; align-items: center; gap: 6px; padding: 0 8px; height: 22px; border-radius: 6px; }
+      .stat canvas { width: 34px; height: 12px; }
+      .stat .k { font-size: 9px; letter-spacing: 0.14em; color: var(--muted); }
+      #now { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+      #now:hover { background: var(--hover); }
+      .eq { display: inline-flex; gap: 2px; align-items: center; height: 12px; }
+      .eq i { width: 2px; height: 3px; background: var(--text); border-radius: 1px; }
+      .eq i:nth-child(2) { background: var(--accent); }
+      .playing .eq i { animation: eq 0.9s ease-in-out infinite alternate; }
+      .eq i:nth-child(2) { animation-delay: -0.3s !important; }
+      .eq i:nth-child(3) { animation-delay: -0.6s !important; }
+      @keyframes eq { 0% { height: 3px; } 50% { height: 11px; } 100% { height: 6px; } }
+      #battery i {
+        display: inline-block;
+        width: 20px;
+        height: 10px;
+        border: 1px solid var(--muted);
+        border-radius: 3px;
+        padding: 1px;
+        position: relative;
+      }
+      #battery i b { display: block; height: 100%; border-radius: 1px; background: var(--text); }
+      #battery.low i b { background: var(--accent); }
+      #clock { font-weight: 600; letter-spacing: 0.04em; cursor: pointer; }
+    </style>
+  </head>
+  <body>
+    <div id="bar">
+      <div class="menu" id="logo" data-menu="familiar">FAMILIAR</div>
+      <div class="menu" id="appName">Рабочий стол</div>
+      <div class="menu" data-menu="widgets">Виджеты</div>
+      <div class="menu" data-menu="wallpaper">Обои</div>
+      <div class="menu" data-menu="profile" id="profile">Профиль</div>
+      <div class="menu" data-menu="theme">Тема</div>
+      <div class="spacer"></div>
+      <!-- В центре сидит остров (отдельное окно), правее — статусы -->
+      <div class="spacer"></div>
+      <div class="stat" id="now"><span class="eq"><i></i><i></i><i></i></span><span id="nowText" class="muted">тишина</span></div>
+      <div class="stat"><span class="k">CPU</span><canvas id="cpuGraph"></canvas><span id="cpu">0%</span></div>
+      <div class="stat"><span class="k">RAM</span><span id="mem">0%</span></div>
+      <div class="stat" id="battery" hidden><i><b></b></i><span id="batteryText"></span></div>
+      <div class="menu" id="clock"></div>
+    </div>
+    <script src="dotmatrix.js"></script>
+    <script src="media.js"></script>
+    <script src="menubar.js"></script>
+  </body>
+</html>

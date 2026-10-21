@@ -1,9 +1,10 @@
 // Общая оболочка виджета: по ?type=... подгружаем нужный файл из widgets/.
 // Каждый файл регистрирует себя через Widget.define(name, mount).
 ;(() => {
-  const type = new URLSearchParams(location.search).get('type')
+  const params = new URLSearchParams(location.search)
+  const type = params.get('type')
   const card = document.getElementById('card')
-  card.classList.add(`w-${type}`)
+  card.classList.add(`w-${type.replace(/[^\w-]+/g, '-')}`)
 
   window.Widget = {
     define(name, mount) {
@@ -34,7 +35,9 @@
     window.familiar.dockMenu(-1)
   })
 
+  // Свой виджет грузится из папки пользователя, встроенный — из widgets/
   const script = document.createElement('script')
-  script.src = `widgets/${type}.js`
+  script.src = params.get('custom') || `widgets/${type}.js`
+  script.onerror = () => (card.textContent = `Не удалось загрузить виджет «${type}»`)
   document.body.appendChild(script)
 })()

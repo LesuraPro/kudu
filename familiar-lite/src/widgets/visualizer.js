@@ -1,7 +1,8 @@
 // Визуализатор: круг из точек, реагирует на звук. Режимы как в Familiar:
-// PULSE, RIPPLE, TORUS, CLOCK, TICKER. Выбор режима запоминается.
+// SPACE, PULSE, RIPPLE, TORUS, CLOCK, TICKER. Выбор режима запоминается.
+// Если сделать окно маленьким — останется только «глаз» без кнопок.
 Widget.define('visualizer', (card) => {
-  const MODES = ['pulse', 'ripple', 'torus', 'clock', 'ticker']
+  const MODES = ['space', 'pulse', 'ripple', 'torus', 'clock', 'ticker']
   let mode = MODES.includes(localStorage.vizMode) ? localStorage.vizMode : 'ripple'
 
   const chips = Widget.el('div', 'chips')
@@ -41,7 +42,23 @@ Widget.define('visualizer', (card) => {
     if (x >= 0 && y >= 0 && x < N && y < N) grid[y * N + x] = Math.max(grid[y * N + x], v)
   }
 
+  // Звёзды для SPACE: x, y в [-1, 1], z — расстояние (чем меньше, тем ближе)
+  const stars = Array.from({ length: 140 }, () => ({ x: Math.random() * 2 - 1, y: Math.random() * 2 - 1, z: Math.random() }))
+
   const renderers = {
+    // Полёт сквозь звёзды: громкость = скорость
+    space(t, lvl, spec, dt) {
+      grid.fill(0)
+      const c = (N - 1) / 2
+      for (const s of stars) {
+        s.z -= dt * (0.15 + lvl * 1.6)
+        if (s.z <= 0.02) Object.assign(s, { x: Math.random() * 2 - 1, y: Math.random() * 2 - 1, z: 1 })
+        const px = Math.round(c + (s.x / s.z) * c * 0.35)
+        const py = Math.round(c + (s.y / s.z) * c * 0.35)
+        setDot(px, py, Math.min(1, (1 - s.z) * 1.3))
+      }
+      setDot(Math.round(c), Math.round(c), 0.4)
+    },
     // Радиальный «цветок»: радиус по каждому направлению = громкость своей полосы
     pulse(t, lvl, spec) {
       const c = (N - 1) / 2
@@ -128,7 +145,7 @@ Widget.define('visualizer', (card) => {
     }
   }
 
-  Widget.loop((t) => {
+  Widget.loop((t, dt) => {
     const { ctx, w, h } = Dot.fit(canvas)
     // Размер сетки подстраиваем под размер окна: шаг точки ~11px
     const size = Math.min(w, h)
@@ -138,9 +155,12 @@ Widget.define('visualizer', (card) => {
       grid = new Float32Array(N * N)
     }
 
+    // Маленькое окно — только «глаз»
+    card.classList.toggle('compact', Math.min(window.innerWidth, window.innerHeight) < 230)
+
     Sound.update(t)
     const lvl = Sound.level()
-    renderers[mode](t, lvl, Sound.spectrum)
+    renderers[mode](t, lvl, Sound.spectrum, dt)
 
     src.textContent = Sound.source() === 'loopback' ? 'LIVE AUDIO' : 'SIM'
 
