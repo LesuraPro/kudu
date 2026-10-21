@@ -28,6 +28,7 @@ const { listGames, gameCover } = require('./lib/games')
 const files = require('./lib/files')
 const profiles = require('./lib/profiles')
 const { createHost } = require('./lib/hosts')
+const convert = require('./lib/convert')
 
 const isWin = process.platform === 'win32'
 // FAMILIAR_DEMO=1 — выдуманные трек, окна, игры и наушники (удобно проверять без Windows)
@@ -108,7 +109,17 @@ const DEFAULT_CONFIG = {
       ]
     : [],
   reminders: [],
-  widgets: {}
+  widgets: {},
+  // Конвертер в духе DragShift: потащил файл, нажал клавишу — круговое меню
+  dragshift: {
+    enabled: true,
+    key: 'shift', // shift | ctrl | alt
+    output: 'beside', // beside — рядом с оригиналом, folder — в подпапку «Преобразовано»
+    quality: 0.82, // качество JPG/WebP
+    targetKb: 500, // «≤ размер»: до скольких КБ сжимать
+    dpi: 150, // PDF → картинки
+    sendTo: true // пункт «Отправить → Familiar — преобразовать» в Проводнике
+  }
 }
 
 const configPath = () => path.join(app.getPath('userData'), 'config.json')
@@ -121,6 +132,7 @@ function loadConfig() {
     loaded = structuredClone(DEFAULT_CONFIG)
   }
   profiles.migrate(loaded)
+  loaded.dragshift = { ...DEFAULT_CONFIG.dragshift, ...loaded.dragshift }
   return loaded
 }
 
@@ -198,6 +210,8 @@ function onBridgeMessage(msg) {
     updatePower({ fullscreen: !!msg.fullscreen })
     updateDock()
     updateForeground()
+  } else if (msg.type === 'dragshift') {
+    onDragshiftTrigger(msg)
   } else if (msg.type === 'appbar' && menubarWin && !menubarWin.isDestroyed()) {
     // Windows выделил полосу под панель — ставим окно ровно в неё
     const [l, t, r, b] = msg.rect
@@ -688,6 +702,20 @@ function setSetting(key, value) {
     config.menubar = !!value
     if (value) createMenubar()
     if (!value) destroyMenubar()
+  } else if (key === 'dragshift') {
+    // Принимаем только известные поля с допустимыми значениями
+    const allowed = {
+      enabled: (v) => typeof v === 'boolean',
+      key: (v) => ['shift', 'ctrl', 'alt'].includes(v),
+      output: (v) => ['beside', 'folder'].includes(v),
+      quality: (v) => v >= 0.3 && v <= 1,
+      targetKb: (v) => Number.isInteger(v) && v >= 50 && v <= 20480,
+      dpi: (v) => [96, 150, 300].includes(v),
+      sendTo: (v) => typeof v === 'boolean'
+    }
+    for (const [k, v] of Object.entries(value ?? {})) if (allowed[k]?.(v)) config.dragshift[k] = v
+    applyDragshiftHook()
+    ensureSendTo()
   } else if (key === 'weather') {
     const { city, latitude, longitude } = value
     if (typeof city !== 'string' || !Number.isFinite(latitude) || !Number.isFinite(longitude)) return
@@ -774,6 +802,160 @@ function fullMenu(index, running) {
     { type: 'separator' },
     ...menus.familiar()
   ]
+}
+
+// ---------- Конвертер (по мотивам DragShift) ----------
+// Потащил файл, нажал Shift — под курсором круговое меню; бросил на сектор — рядом результат.
+// Движок — lib/convert.js, меню — src/radial.*, уведомление — src/toast.*
+
+let radialWin, toastWin
+let radialMode = null
+let lastResult = null
+const RADIAL_SIZE = 440
+const TOAST_SIZE = { width: 400, height: 132 }
+const TRIGGER_VK = { shift: 0x10, ctrl: 0x11, alt: 0x12 }
+
+const convertCtx = () => ({ srcDir: SRC, webPreferences, settings: config.dragshift })
+
+// Действия для меню; у «≤ размер» в подписи — лимит из настроек
+function dragshiftActions(kinds) {
+  const set = convert.actionsFor(kinds)
+  const label = (a) => (a.id === 'compress-target' ? { ...a, label: `≤ ${config.dragshift.targetKb >= 1024 ? config.dragshift.targetKb / 1024 + ' МБ' : config.dragshift.targetKb + ' КБ'}` } : a)
+  return { convert: set.convert.map(label), tools: set.tools.map(label) }
+}
+
+// Хук клавиатуры живёт в мосте (bridge.ps1); включаем или выключаем по настройке
+function applyDragshiftHook() {
+  if (!isWin) return
+  if (config.dragshift.enabled) bridge.send(`hook ${TRIGGER_VK[config.dragshift.key] ?? 0x10} ${process.pid}`)
+  else bridge.send('hook-off')
+}
+
+async function createConverterWindows() {
+  const overlayOptions = { frame: false, transparent: true, resizable: false, skipTaskbar: true, alwaysOnTop: true, hasShadow: false, show: false }
+  radialWin = await shellHost.open('radial.html', null, { ...overlayOptions, width: RADIAL_SIZE, height: RADIAL_SIZE })
+  radialWin.setAlwaysOnTop(true, 'screen-saver')
+  // Меню, открытое щелчком, закрывается, если кликнуть мимо
+  radialWin.on('blur', () => radialMode === 'click' && hideRadial())
+  toastWin = await shellHost.open('toast.html', null, { ...overlayOptions, ...TOAST_SIZE, focusable: false })
+  toastWin.setAlwaysOnTop(true, 'screen-saver')
+}
+
+function openRadial(point, { files: paths = null } = {}) {
+  if (!radialWin) return
+  const area = screen.getDisplayNearestPoint(point).bounds
+  const half = RADIAL_SIZE / 2
+  const x = Math.round(Math.min(Math.max(point.x - half, area.x), area.x + area.width - RADIAL_SIZE))
+  const y = Math.round(Math.min(Math.max(point.y - half, area.y), area.y + area.height - RADIAL_SIZE))
+  radialWin.setBounds({ x, y, width: RADIAL_SIZE, height: RADIAL_SIZE })
+  radialMode = paths ? 'click' : 'drag'
+  const actions = paths ? dragshiftActions(paths.map(convert.kindOf)) : null
+  radialWin.webContents.send('radial:open', { mode: radialMode, files: paths, actions })
+  if (paths) {
+    radialWin.show()
+    radialWin.focus()
+  } else {
+    // Во время перетаскивания фокус не забираем — иначе Проводник может прервать перетаскивание
+    radialWin.showInactive()
+  }
+}
+
+function hideRadial() {
+  radialMode = null
+  radialWin?.hide()
+}
+
+function onDragshiftTrigger(msg) {
+  if (!config.dragshift.enabled) return
+  // Меню уже открыто — повторное нажатие переключает «Формат» и «Инструменты»
+  if (radialWin?.isVisible()) return radialWin.webContents.send('radial:toggle')
+  openRadial(screen.screenToDipPoint({ x: msg.x, y: msg.y }))
+}
+
+function showToast(t) {
+  if (!toastWin) return
+  const { workArea } = screen.getPrimaryDisplay()
+  toastWin.setBounds({
+    x: workArea.x + workArea.width - TOAST_SIZE.width - 12,
+    y: workArea.y + workArea.height - DOCK_HEIGHT - TOAST_SIZE.height,
+    ...TOAST_SIZE
+  })
+  toastWin.webContents.send('toast:show', t)
+  toastWin.showInactive()
+}
+
+// Миниатюра результата для уведомления (если это картинка, которую умеет nativeImage)
+function thumbOf(p) {
+  if (!p || !/\.(jpe?g|png)$/i.test(p)) return null
+  const img = nativeImage.createFromPath(p)
+  return img.isEmpty() ? null : img.resize({ width: 108 }).toDataURL()
+}
+
+// 1 файл, 2 файла, 5 файлов
+function filesWord(n) {
+  const d = n % 10
+  const dd = n % 100
+  return `${n} ${d === 1 && dd !== 11 ? 'файл' : d >= 2 && d <= 4 && (dd < 12 || dd > 14) ? 'файла' : 'файлов'}`
+}
+
+async function runConversion(actionId, paths) {
+  hideRadial()
+  const what = paths.length > 1 ? filesWord(paths.length) : path.basename(paths[0])
+  showToast({ state: 'busy', title: `${convert.labelOf(actionId)} · ${what}` })
+  try {
+    const res = await convert.run(convertCtx(), actionId, paths)
+    lastResult = res
+    const names = res.outputs.map((o) => path.basename(o))
+    showToast({
+      state: res.outputs.length ? 'done' : 'info',
+      title: names.length > 1 ? `${filesWord(names.length)} · ${names[0]} …` : names[0] ?? what,
+      note: res.note,
+      thumb: thumbOf(res.outputs[0])
+    })
+  } catch (err) {
+    console.error('Конвертер:', err)
+    showToast({ state: 'error', title: `${convert.labelOf(actionId)} · ${what}`, note: err.message })
+  }
+}
+
+async function toastAction(action) {
+  const outputs = lastResult?.outputs ?? []
+  if (action === 'hide') return toastWin?.hide()
+  if (!outputs.length) return
+  if (action === 'open') return outputs.length === 1 ? shell.openPath(outputs[0]) : shell.showItemInFolder(outputs[0])
+  if (action === 'reveal') return shell.showItemInFolder(outputs[0])
+  if (action === 'undo') {
+    // Отменить = убрать созданное в корзину; оригинал и так не трогали
+    for (const o of outputs) await shell.trashItem(o).catch(() => fs.rmSync(o, { force: true }))
+    lastResult = null
+    showToast({ state: 'undone', title: outputs.length > 1 ? `${filesWord(outputs.length)} в корзине` : `${path.basename(outputs[0])} — в корзине` })
+  }
+}
+
+// Файлы после флага --dragshift (так их передаёт ярлык в «Отправить»)
+function dragshiftArgs(argv) {
+  const i = argv.indexOf('--dragshift')
+  return i < 0 ? [] : argv.slice(i + 1).filter((a) => !a.startsWith('--') && fs.existsSync(a))
+}
+
+// Пункт «Отправить → Familiar — преобразовать» в контекстном меню Проводника
+function ensureSendTo() {
+  if (!isWin) return
+  const link = path.join(app.getPath('appData'), 'Microsoft', 'Windows', 'SendTo', 'Familiar — преобразовать.lnk')
+  try {
+    if (!config.dragshift.sendTo) return fs.rmSync(link, { force: true })
+    // В разработке exe — это electron.exe, и ему нужен путь к приложению
+    const args = app.isPackaged ? '--dragshift' : `"${app.getAppPath()}" --dragshift`
+    shell.writeShortcutLink(link, fs.existsSync(link) ? 'replace' : 'create', {
+      target: process.execPath,
+      args,
+      description: 'Преобразовать файл в Familiar Lite',
+      icon: process.execPath,
+      iconIndex: 0
+    })
+  } catch (err) {
+    console.error('Не получилось создать пункт «Отправить»:', err.message)
+  }
 }
 
 // ---------- IPC: что окна могут попросить у главного процесса ----------
@@ -877,6 +1059,11 @@ function registerIpc() {
     const inFamiliar = path.dirname(item.path) === files.familiarDir(app)
     const template = [
       { label: 'Открыть', click: () => launch(item) },
+      {
+        label: 'Преобразовать…',
+        enabled: !item.isDir && !!convert.kindOf(files.linkTarget(item.path)),
+        click: () => openRadial(screen.getCursorScreenPoint(), { files: [files.linkTarget(item.path)] })
+      },
       { label: 'Показать в Проводнике', click: () => shell.showItemInFolder(files.linkTarget(item.path)) },
       ...(item.isDir ? [{ label: 'Открыть в «Файлах»', click: () => openFiles(files.linkTarget(item.path)) }] : []),
       { type: 'separator' },
@@ -931,6 +1118,27 @@ function registerIpc() {
     }))
   })
 
+  // Конвертер
+  ipcMain.handle('dragshift:actions', (_e, mimes) => dragshiftActions((mimes ?? []).map(convert.kindOfMime)))
+  ipcMain.handle('dragshift:run', (_e, actionId, paths) => runConversion(actionId, paths))
+  ipcMain.on('dragshift:close', hideRadial)
+  // Значок под курсором при перетаскивании: красная точка 24×24 в нашем стиле
+  let dragIcon = null
+  ipcMain.on('file:drag', (e, file) => {
+    if (!dragIcon) {
+      const n = 24
+      const buf = Buffer.alloc(n * n * 4)
+      for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+        const inside = Math.hypot(x - 11.5, y - 11.5) < 7
+        buf.set(inside ? [0x2d, 0x2d, 0xff, 0xff] : [0, 0, 0, 0], (y * n + x) * 4) // BGRA
+      }
+      dragIcon = nativeImage.createFromBitmap(buf, { width: n, height: n })
+    }
+    if (fs.existsSync(file)) e.sender.startDrag({ file, icon: dragIcon })
+  })
+  ipcMain.on('dragshift:open', (_e, paths) => openRadial(screen.getCursorScreenPoint(), { files: paths }))
+  ipcMain.handle('toast:action', (_e, action) => toastAction(action))
+
   ipcMain.handle('reminders:set', (_e, reminders) => {
     config.reminders = reminders
     saveConfig()
@@ -972,7 +1180,12 @@ async function pollDevices() {
 if (!app.requestSingleInstanceLock()) {
   app.quit()
 } else {
-  app.on('second-instance', () => toggleLauncher())
+  // Второй запуск: «Отправить → Familiar — преобразовать» передаёт файлы, иначе — открыть поиск
+  app.on('second-instance', (_e, argv) => {
+    const sent = dragshiftArgs(argv)
+    if (sent.length) openRadial(screen.getCursorScreenPoint(), { files: sent })
+    else toggleLauncher()
+  })
 
   app.whenReady().then(() => {
     config = loadConfig()
@@ -980,7 +1193,7 @@ if (!app.requestSingleInstanceLock()) {
     seedCustomWidgets()
     registerIpc()
     enableLoopbackAudio()
-    bridge = startBridge({ app, isDemo, onMessage: onBridgeMessage })
+    bridge = startBridge({ app, isDemo, onMessage: onBridgeMessage, onStart: applyDragshiftHook })
 
     watchPower()
     shellHost = createHost(SRC, webPreferences)
@@ -989,6 +1202,12 @@ if (!app.requestSingleInstanceLock()) {
     createDock()
     createIsland()
     createLauncher()
+    createConverterWindows().then(() => {
+      // Запустили через «Отправить → …», когда оболочка ещё не работала
+      const sent = dragshiftArgs(process.argv)
+      if (sent.length) openRadial(screen.getCursorScreenPoint(), { files: sent })
+    })
+    ensureSendTo()
     syncWidgets()
 
     // Панель заняла полосу сверху или поменялось разрешение — двигаем док к низу

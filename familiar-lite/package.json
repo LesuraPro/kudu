@@ -16,7 +16,22 @@
   "build": {
     "appId": "local.familiar-lite",
     "productName": "Familiar Lite",
-    "files": ["main.js", "preload.js", "bridge.ps1", "lib/**/*", "src/**/*", "examples/**/*"],
-    "win": { "target": "portable" }
+    "files": [
+      "main.js",
+      "preload.js",
+      "bridge.ps1",
+      "lib/**/*",
+      "src/**/*",
+      "examples/**/*"
+    ],
+    "win": {
+      "target": "portable"
+    }
+  },
+  "dependencies": {
+    "docx": "^9.13.0",
+    "mammoth": "^1.13.0",
+    "pdf-lib": "^1.17.1",
+    "pdfjs-dist": "^4.10.38"
   }
 }

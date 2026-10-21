@@ -6,7 +6,7 @@ const fs = require('fs')
 const readline = require('readline')
 const { spawn } = require('child_process')
 
-function startBridge({ app, isDemo, onMessage }) {
+function startBridge({ app, isDemo, onMessage, onStart }) {
   if (isDemo) return startDemo(onMessage)
   if (process.platform !== 'win32') return { send() {}, stop() {} }
 
@@ -31,6 +31,8 @@ function startBridge({ app, isDemo, onMessage }) {
       }
     })
     proc.stderr.on('data', (d) => console.error('[bridge]', String(d).trim()))
+    // Команды можно слать сразу: PowerShell прочитает их, когда загрузится
+    setImmediate(() => onStart?.())
     proc.on('exit', (code) => {
       proc = null
       onMessage({ type: 'media', status: 'none' })

@@ -238,6 +238,50 @@ const pages = {
     }
   },
 
+  dragshift: {
+    title: 'Конвертер',
+    async render() {
+      const d = config.dragshift
+      const set = (patch) => f.setSetting('dragshift', patch)
+      const seg = (options, current, onPick) =>
+        el(
+          'div',
+          { className: 'segmented' },
+          options.map(([value, label]) => el('button', { className: current === value ? 'active' : '', textContent: label, onclick: () => onPick(value) }))
+        )
+      return [
+        el('h1', {}, 'Конвертер'),
+        el(
+          'div',
+          { className: 'sub' },
+          'Начни тащить файл, нажми Shift — под курсором появится круговое меню. Отпусти файл на секторе — результат появится рядом, оригинал не трогается. Ещё раз Shift — другие действия. ',
+          'Картинки, PDF, Word и текст; можно и через ПКМ → «Отправить» → «Familiar — преобразовать» или «Преобразовать…» в «Файлах».'
+        ),
+        el(
+          'div',
+          { className: 'group' },
+          row('Включён', 'Shift во время перетаскивания из Проводника, с рабочего стола и из «Файлов»', toggle(d.enabled, (on) => set({ enabled: on }))),
+          row('Клавиша', 'Нажать, пока тащишь файл', seg([['shift', 'Shift'], ['ctrl', 'Ctrl'], ['alt', 'Alt']], d.key, (v) => set({ key: v }))),
+          row('Куда сохранять', null, seg([['beside', 'Рядом'], ['folder', 'В «Преобразовано»']], d.output, (v) => set({ output: v }))),
+          row('Пункт в «Отправить»', 'ПКМ по файлу → Отправить → Familiar — преобразовать', toggle(d.sendTo, (on) => set({ sendTo: on })))
+        ),
+        el('h2', {}, 'Качество'),
+        el(
+          'div',
+          { className: 'group' },
+          row('JPG и WebP', 'Для «Сжать» и смены формата', seg([[0.7, 'Меньше'], [0.82, 'Баланс'], [0.92, 'Лучше']], d.quality, (v) => set({ quality: v }))),
+          row('«≤ размер»', 'До скольких сжимать, например для сайтов с лимитом', seg([[200, '200 КБ'], [500, '500 КБ'], [1024, '1 МБ'], [2048, '2 МБ']], d.targetKb, (v) => set({ targetKb: v }))),
+          row('PDF → картинки', 'Чётче — больше файлы', seg([[96, '96 dpi'], [150, '150'], [300, '300']], d.dpi, (v) => set({ dpi: v })))
+        ),
+        el(
+          'div',
+          { className: 'sub', style: 'margin-top:14px' },
+          'По мотивам DragShift — github.com/llamaboi55/DragShift (лицензия MIT). Код здесь свой, на JavaScript, а форматы и жест — оттуда.'
+        )
+      ]
+    }
+  },
+
   windows: {
     title: 'Система Windows',
     async render() {
@@ -267,6 +311,7 @@ const pages = {
         ['Alt + Space', 'Поиск приложений, игр и файлов'],
         ['Alt + W', 'Показать или скрыть виджеты'],
         ['Ctrl + Alt + Q', 'Выйти из Familiar Lite (программы Windows продолжат работать)'],
+        ['Shift при перетаскивании', 'Конвертер: круговое меню под курсором; ещё раз Shift — другие действия'],
         ['Ctrl + Enter', 'В поиске — закрепить найденное в доке'],
         ['1 – 5', 'В терминале familiar-tty — сцены'],
         ['Backspace, Alt + ← →', 'В «Файлах» — вверх, назад, вперёд']
@@ -306,6 +351,7 @@ const ICONS = {
   panel: ['#####', '.....', '.###.', '.....', '.....'],
   weather: ['#.#.#', '.###.', '#####', '.###.', '#.#.#'],
   windows: ['#####', '#.#.#', '#####', '#.#.#', '#####'],
+  dragshift: ['..#..', '.#.#.', '#...#', '.#.#.', '..#..'],
   keys: ['#####', '#.#.#', '#####', '.###.', '.....'],
   about: ['..#..', '.....', '..#..', '..#..', '..#..']
 }

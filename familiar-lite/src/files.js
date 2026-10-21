@@ -123,6 +123,12 @@ function render() {
       el.title = e.name
       el.addEventListener('click', () => select(entries.indexOf(e)))
       el.addEventListener('dblclick', () => open(e))
+      // Файл можно утащить в Проводник или другую программу; Shift по пути — конвертер
+      el.draggable = true
+      el.addEventListener('dragstart', (ev) => {
+        ev.preventDefault()
+        window.familiar.startDrag(e.path)
+      })
       el.addEventListener('contextmenu', (ev) => {
         ev.preventDefault()
         select(entries.indexOf(e))

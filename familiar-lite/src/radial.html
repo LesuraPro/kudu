@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'" />
+    <link rel="stylesheet" href="theme.css" />
+    <style>
+      html, body { width: 100%; height: 100%; }
+      body { display: flex; align-items: center; justify-content: center; }
+      #ring { width: 420px; height: 420px; overflow: visible; }
+      #ring.show { animation: ring-in 0.42s var(--spring) both; }
+      #ring.swap { animation: ring-swap 0.4s var(--spring) both; }
+      @keyframes ring-in { from { opacity: 0; transform: scale(0.55) rotate(-25deg); } }
+      @keyframes ring-swap { from { opacity: 0.2; transform: scale(0.85) rotate(40deg); } }
+
+      /* Сектор: «жидкое стекло» Nothing — тёмное, с тонкой кромкой; под курсором — красный */
+      .slice path {
+        fill: rgba(16, 16, 18, 0.9);
+        stroke: rgba(255, 255, 255, 0.12);
+        stroke-width: 1;
+        transition: fill 0.15s;
+      }
+      .slice .icon circle { fill: #f2f2f2; transition: fill 0.15s; }
+      .slice text {
+        fill: #d8d8dc;
+        font: 600 11px var(--mono);
+        letter-spacing: 0.08em;
+        text-anchor: middle;
+        text-transform: uppercase;
+      }
+      .slice.format text { font-size: 15px; fill: #f2f2f2; letter-spacing: 0.12em; }
+      .slice { animation: slice-in 0.35s var(--spring) both; transform-origin: 210px 210px; }
+      @keyframes slice-in { from { opacity: 0; transform: scale(0.7); } }
+      .slice.hot path { fill: var(--accent); stroke: rgba(255, 255, 255, 0.35); }
+      .slice.hot text { fill: #fff; }
+
+      .hub circle.disc { fill: rgba(8, 8, 10, 0.94); stroke: rgba(255, 255, 255, 0.14); }
+      .hub.hot circle.disc { stroke: var(--accent); }
+      .hub text { text-anchor: middle; font-family: var(--mono); }
+      .hub .file { fill: #a0a0a5; font-size: 10px; }
+      .hub .hint { fill: #6f6f75; font-size: 9px; letter-spacing: 0.08em; }
+      .dotline circle { fill: #f2f2f2; }
+      .dotline circle.off { fill: rgba(255, 255, 255, 0.12); }
+    </style>
+  </head>
+  <body>
+    <svg id="ring" viewBox="0 0 420 420"></svg>
+    <script src="dotmatrix.js"></script>
+    <script src="radial.js"></script>
+  </body>
+</html>

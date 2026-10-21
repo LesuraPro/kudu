@@ -33,6 +33,12 @@ Widget.define('shortcuts', (card) => {
       el.classList.add('selected')
     })
     el.addEventListener('dblclick', () => window.familiar.launch({ path: entry.path }))
+    // Ярлык можно утащить в Проводник или другую программу; Shift по пути — конвертер
+    el.draggable = true
+    el.addEventListener('dragstart', (ev) => {
+      ev.preventDefault()
+      window.familiar.startDrag(entry.path)
+    })
     el.addEventListener('keydown', (e) => e.key === 'Enter' && window.familiar.launch({ path: entry.path }))
     el.addEventListener('contextmenu', (e) => {
       // Своё меню вместо общего меню виджетов

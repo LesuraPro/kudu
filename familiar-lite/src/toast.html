@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'" />
+    <link rel="stylesheet" href="theme.css" />
+    <style>
+      body { height: 100vh; padding: 8px; display: flex; align-items: flex-end; }
+      #toast {
+        width: 100%;
+        border-radius: var(--radius-card);
+        padding: 14px 16px;
+        display: flex;
+        gap: 14px;
+        align-items: center;
+        opacity: 0;
+        transform: translateY(14px) scale(0.96);
+        transition: opacity 0.2s, transform 0.4s var(--spring);
+      }
+      #toast.show { opacity: 1; transform: none; }
+      #thumb {
+        width: 54px;
+        height: 54px;
+        flex: none;
+        border-radius: 12px;
+        background: var(--hover) center/cover;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      #thumb canvas { width: 30px; height: 30px; }
+      .body { flex: 1; min-width: 0; }
+      .label { margin-bottom: 4px; }
+      #title { font-family: var(--sans); font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      #note { font-size: 11px; color: var(--muted); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .actions { display: flex; gap: 6px; margin-top: 9px; }
+      .actions button {
+        padding: 4px 11px;
+        font-size: 10px;
+        letter-spacing: 0.06em;
+        border-radius: 999px;
+        border: 1px solid var(--border);
+        color: var(--text);
+      }
+      .actions button:hover { border-color: var(--border-strong); background: var(--hover); }
+      .actions button.primary { background: var(--text); color: var(--bg-strong); border-color: var(--text); }
+      #toast.error .label::before { animation: blink 0.8s steps(2, jump-none) infinite; }
+    </style>
+  </head>
+  <body>
+    <div id="toast" class="glass">
+      <div id="thumb"><canvas id="spinner"></canvas></div>
+      <div class="body">
+        <div class="label" id="state">Конвертер</div>
+        <div id="title"></div>
+        <div id="note"></div>
+        <div class="actions" id="actions">
+          <button class="primary" data-act="open">Открыть</button>
+          <button data-act="reveal">В папке</button>
+          <button data-act="undo">Отменить</button>
+        </div>
+      </div>
+    </div>
+    <script src="dotmatrix.js"></script>
+    <script src="toast.js"></script>
+  </body>
+</html>

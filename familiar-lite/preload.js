@@ -79,5 +79,21 @@ contextBridge.exposeInMainWorld('familiar', {
   chooseWallpaper: () => ipcRenderer.invoke('wallpaper:choose'),
   searchCity: (q) => ipcRenderer.invoke('geo:search', q),
   closeWindow: () => ipcRenderer.send('window:close'),
-  quit: () => ipcRenderer.send('app:quit')
+  quit: () => ipcRenderer.send('app:quit'),
+
+  // Конвертер в духе DragShift: рабочее окно, круговое меню, уведомление о результате
+  onJob: on('convert:job'),
+  jobDone: (id, result) => ipcRenderer.send('convert:done', id, result),
+  workerReady: () => ipcRenderer.send('convert:ready'),
+  dragshiftActions: (kinds) => ipcRenderer.invoke('dragshift:actions', kinds),
+  dragshiftKinds: (paths) => ipcRenderer.invoke('dragshift:kinds', paths),
+  dragshiftRun: (actionId, paths) => ipcRenderer.invoke('dragshift:run', actionId, paths),
+  dragshiftClose: () => ipcRenderer.send('dragshift:close'),
+  convertFiles: (paths) => ipcRenderer.send('dragshift:open', paths),
+  // Начать системное перетаскивание файла из нашего окна (в Проводник, в другие программы, в конвертер)
+  startDrag: (path) => ipcRenderer.send('file:drag', path),
+  onRadialOpen: on('radial:open'),
+  onRadialToggle: on('radial:toggle'),
+  onToast: on('toast:show'),
+  toastAction: (action) => ipcRenderer.invoke('toast:action', action)
 })
