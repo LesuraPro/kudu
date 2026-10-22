@@ -10,10 +10,23 @@ function startBridge({ app, isDemo, onMessage, onStart }) {
   if (isDemo) return startDemo(onMessage)
   if (process.platform !== 'win32') return { send() {}, stop() {} }
 
-  // Из asar-архива PowerShell файл не прочитает — копируем скрипт рядом с настройками
-  const script = path.join(app.getPath('userData'), 'bridge.ps1')
-  fs.mkdirSync(path.dirname(script), { recursive: true })
-  fs.writeFileSync(script, fs.readFileSync(path.join(__dirname, '..', 'bridge.ps1')))
+  // Из asar-архива PowerShell файл не прочитает — копируем скрипт рядом с настройками.
+  // Пишем, только если он изменился; если файл занят (ещё жив мост от прошлого запуска,
+  // антивирус проверяет) — берём отдельную копию во временной папке, а не падаем
+  const source = fs.readFileSync(path.join(__dirname, '..', 'bridge.ps1'))
+  let script = path.join(app.getPath('userData'), 'bridge.ps1')
+  try {
+    fs.mkdirSync(path.dirname(script), { recursive: true })
+    let same = false
+    try {
+      same = fs.readFileSync(script).equals(source)
+    } catch {}
+    if (!same) fs.writeFileSync(script, source)
+  } catch (err) {
+    script = path.join(require('os').tmpdir(), `familiar-bridge-${process.pid}.ps1`)
+    fs.writeFileSync(script, source)
+    console.warn('bridge.ps1 занят, беру копию:', script, err.code)
+  }
 
   let proc = null
   let restarts = 0

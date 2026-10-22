@@ -6,7 +6,8 @@
   "private": true,
   "scripts": {
     "start": "electron .",
-    "package:win": "electron-builder --win portable"
+    "package:win": "electron-builder --win zip",
+    "package:win:portable": "electron-builder --win portable"
   },
   "license": "MIT",
   "devDependencies": {
@@ -22,11 +23,13 @@
       "bridge.ps1",
       "lib/**/*",
       "src/**/*",
-      "examples/**/*"
+      "examples/**/*",
+      "!**/node_modules/@napi-rs/**"
     ],
     "win": {
-      "target": "portable"
-    }
+      "target": "zip"
+    },
+    "artifactName": "FamiliarLite-${version}-win-${arch}.${ext}"
   },
   "dependencies": {
     "docx": "^9.13.0",
