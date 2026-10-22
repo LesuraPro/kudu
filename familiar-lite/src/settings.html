@@ -75,6 +75,22 @@
         outline: none;
       }
       input[type='text']:focus { border-color: var(--accent); }
+      /* Редактор расписания: строка пары — время, время, предмет, аудитория, вид, неделя */
+      .pair-edit { gap: 8px; padding: 8px 12px; }
+      .pair-edit input, .pair-edit select {
+        padding: 7px 9px;
+        font: 12px var(--mono);
+        color: var(--text);
+        background: var(--hover);
+        border: 1px solid var(--border);
+        border-radius: 9px;
+        outline: none;
+      }
+      .pair-edit input[type='time'] { width: 86px; flex: none; }
+      .pair-edit input[type='text'] { flex: 1; min-width: 0; width: auto; }
+      .pair-edit select { flex: none; max-width: 120px; }
+      .pair-edit input:focus, .pair-edit select:focus { border-color: var(--accent); }
+      .pair-edit option { background: var(--solid); }
 
       /* Переключатель */
       .switch { position: relative; width: 38px; height: 22px; flex: none; border-radius: 999px; background: var(--dot-off); transition: background 0.2s; }

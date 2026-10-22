@@ -13,6 +13,8 @@ island.addEventListener('mouseleave', () => {
   clearTimeout(openTimer)
   island.classList.remove('open')
   window.familiar.captureMouse(false)
+  // Пилюля сжимается 0,55 с — когда закончит, перерисуем часы или таймер по новой ширине
+  setTimeout(() => (shownTime = ''), 600)
 })
 island.addEventListener('click', () => island.classList.add('open'))
 
@@ -132,6 +134,73 @@ $('theme').addEventListener('click', (e) => {
   window.familiar.toggleTheme()
 })
 
+// ---------- Таймер фокуса ----------
+// Сам таймер идёт в главном процессе; здесь — показать остаток и звякнуть в конце
+
+let focus = null
+const focusLeft = () => (focus ? Math.max(0, focus.endsAt - Date.now()) : 0)
+const mmss = (ms) => {
+  const s = Math.ceil(ms / 1000)
+  return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`
+}
+window.familiar.getFocus().then((f) => (focus = f))
+window.familiar.onFocus((f) => {
+  focus = f
+  shownTime = ''
+  shownFocus = ''
+})
+for (const b of document.querySelectorAll('#focus button[data-min]')) {
+  b.addEventListener('click', (e) => {
+    e.stopPropagation()
+    window.familiar.startFocus(Number(b.dataset.min), b.dataset.label ?? 'Фокус')
+  })
+}
+$('focusStop').addEventListener('click', (e) => {
+  e.stopPropagation()
+  window.familiar.stopFocus()
+})
+
+// Время вышло — три коротких сигнала (своим синтезатором: файлы со звуком не нужны)
+window.familiar.onFocusDone(() => {
+  try {
+    const ac = new AudioContext()
+    ;[0, 0.22, 0.44].forEach((at, i) => {
+      const o = ac.createOscillator()
+      const g = ac.createGain()
+      o.frequency.value = i === 2 ? 1175 : 880
+      g.gain.setValueAtTime(0.0001, ac.currentTime + at)
+      g.gain.exponentialRampToValueAtTime(0.18, ac.currentTime + at + 0.02)
+      g.gain.exponentialRampToValueAtTime(0.0001, ac.currentTime + at + 0.18)
+      o.connect(g).connect(ac.destination)
+      o.start(ac.currentTime + at)
+      o.stop(ac.currentTime + at + 0.2)
+    })
+    setTimeout(() => ac.close(), 1200)
+  } catch {}
+})
+
+let shownFocus = ''
+function drawFocusPage() {
+  const left = focusLeft()
+  const key = `${focus ? mmss(left) : '--:--'}:${focusDots.clientWidth}`
+  if (key === shownFocus) return
+  shownFocus = key
+  $('focusLabel').textContent = focus ? `${focus.label} · осталось ${Math.ceil(left / 60000)} мин` : 'Таймер не запущен'
+  const { ctx, w, h } = Dot.fit(focusDots)
+  ctx.clearRect(0, 0, w, h)
+  const pitch = 6
+  const text = focus ? mmss(left) : '25:00'
+  const tw = Dot.width(text) * pitch
+  Dot.draw(ctx, text, (w - tw) / 2, 0, { pitch, on: focus ? ON() : inkAlpha(0.35), off: OFF() })
+  // Полоска прогресса из точек под цифрами: пройденное — акцентом
+  const n = 40
+  const done = focus ? Math.round((1 - left / focus.total) * n) : 0
+  const b = Dot.batch(ctx)
+  for (let i = 0; i < n; i++) b.dot(((i + 0.5) * w) / n, 7 * pitch + 14, 2, i < done ? Dot.css('--accent') : OFF())
+  b.flush()
+}
+const focusDots = $('focusDots')
+
 // ---------- Анимация: точечные часы / бегущая строка ----------
 
 const mini = $('miniDots')
@@ -200,7 +269,7 @@ function scheduleFrame() {
   // Развёрнутый плеер — 30 кадров; свёрнутый с музыкой — 12: строка едет шагами по одной
   // точке, как на настоящем точечном экране, и вдвое дешевле; тишина — 2 кадра на часы
   const open = island.classList.contains('open')
-  const fps = Power.mode() === 'paused' || document.hidden ? 0.5 : (open ? 30 : Media.playing() ? 12 : 2) * Power.factor()
+  const fps = Power.mode() === 'paused' || document.hidden ? 0.5 : (open ? 30 : Media.playing() && !focus ? 12 : 2) * Power.factor()
   const wait = 1000 / fps - (performance.now() - lastDraw)
   if (wait > 8) setTimeout(() => requestAnimationFrame(frame), wait - 4)
   else requestAnimationFrame(frame)
@@ -222,9 +291,18 @@ function draw(now, dt) {
   const playing = Media.playing()
   ;(open ? eqFull : eqMini)(now / 1000, playing)
 
-  // Свёрнутый остров: если играет музыка — бегущая строка, иначе часы
+  // Свёрнутый остров: идёт таймер — обратный отсчёт; играет музыка — бегущая строка; иначе часы
   const { ctx, w, h } = Dot.fit(mini)
-  if (playing) {
+  if (focus) {
+    const text = mmss(focusLeft())
+    if (text !== shownTime || mini.dataset.w !== String(w)) {
+      shownTime = text
+      mini.dataset.w = String(w)
+      ctx.clearRect(0, 0, w, h)
+      const tw = Dot.width(text) * PITCH
+      Dot.draw(ctx, text, (w - tw) / 2, 0, { pitch: PITCH, on: Dot.css('--accent'), off: OFF() })
+    }
+  } else if (playing) {
     const m = Media.get()
     const s = textStrip(`${m.title} — ${m.artist}   `.toUpperCase())
     scroll = (scroll + dt * 24) % s.width
@@ -249,6 +327,7 @@ function draw(now, dt) {
   }
 
   if (!open) return
+  if ($('focus').classList.contains('active')) drawFocusPage()
 
   // Заглушка вместо обложки: пульсирующая точечная сетка
   if (artDots.style.display !== 'none') {

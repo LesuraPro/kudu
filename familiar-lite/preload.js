@@ -76,6 +76,20 @@ contextBridge.exposeInMainWorld('familiar', {
   clearProfilePhoto: (id) => ipcRenderer.invoke('profiles:photo-clear', id),
   listWallpapers: () => ipcRenderer.invoke('wallpapers:list'),
   listPalettes: () => ipcRenderer.invoke('palette:list'),
+  getAutostart: () => ipcRenderer.invoke('autostart:get'),
+
+  // Быстрые действия поиска и таймер фокуса
+  quickAction: (a) => ipcRenderer.send('quick:action', a),
+  getFocus: () => ipcRenderer.invoke('focus:get'),
+  onFocus: on('focus'),
+  onFocusDone: on('focus-done'),
+  startFocus: (minutes, label) => ipcRenderer.send('focus:start', minutes, label),
+  stopFocus: () => ipcRenderer.send('focus:stop'),
+
+  // Данные виджетов: сохраняются в config.json
+  widgetData: (name) => ipcRenderer.invoke('widget-data:get', name),
+  setWidgetData: (name, value) => ipcRenderer.invoke('widget-data:set', name, value),
+  onWidgetData: (cb) => ipcRenderer.on('widget-data', (_e, name, value) => cb(name, value)),
   applyWallpaper: (style) => ipcRenderer.invoke('wallpaper:apply', style),
   chooseWallpaper: () => ipcRenderer.invoke('wallpaper:choose'),
   searchCity: (q) => ipcRenderer.invoke('geo:search', q),

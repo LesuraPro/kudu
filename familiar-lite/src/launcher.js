@@ -15,9 +15,16 @@ function score(name, query) {
   return 0
 }
 
+let engine = 'yandex'
+window.familiar.getConfig().then((c) => (engine = c.searchEngine ?? 'yandex'))
+window.familiar.onConfigChanged((c) => (engine = c.searchEngine ?? 'yandex'))
+
 function search() {
   const query = q.value.trim().toLowerCase()
-  results = query
+  // Сверху — быстрые ответы (калькулятор, единицы, команды), потом приложения и файлы,
+  // в конце — «Найти в интернете»
+  const quick = Quick.answers(q.value, { engine })
+  const found = query && !quick.only
     ? items
         .map((it) => ({ it, s: score(it.name, query) }))
         .filter((r) => r.s > 0)
@@ -25,9 +32,12 @@ function search() {
         .slice(0, 30)
         .map((r) => r.it)
     : []
+  results = [...quick.top, ...found, ...(quick.web ? [quick.web] : [])]
   active = 0
   render()
 }
+
+const SYM = { calc: '=', cmd: '›', web: '?' }
 
 // Название с подсвеченным совпадением: «Te[ле]грам»
 function highlighted(name, query) {
@@ -56,17 +66,19 @@ function render() {
   list.replaceChildren(
     ...results.map((it, i) => {
       const row = document.createElement('div')
-      row.className = 'row' + (i === active ? ' active' : '')
+      row.className = 'row' + (i === active ? ' active' : '') + (it.icon ? ` ${it.icon}` : '')
       const ph = document.createElement('div')
-      ph.className = 'ph'
-      const name = highlighted(it.name, query)
+      ph.className = it.action ? 'sym' : 'ph'
+      if (it.action) ph.textContent = SYM[it.icon] ?? '›'
+      const name = it.action ? Object.assign(document.createElement('div'), { className: 'name', textContent: it.name }) : highlighted(it.name, query)
       const kind = document.createElement('div')
       kind.className = 'kind'
-      kind.textContent = it.store ? `Игра · ${it.store}` : it.isFile ? 'Файл' : 'Приложение'
+      kind.textContent = it.kind ?? (it.store ? `Игра · ${it.store}` : it.isFile ? 'Файл' : 'Приложение')
       row.append(ph, name, kind)
       row.addEventListener('click', () => open(it))
       // Подсветку при наведении переключаем классом, не перестраивая весь список
       row.addEventListener('mousemove', () => setActive(i, false))
+      if (it.action) return row
       loadIcon(it).then((src) => {
         if (!src) return
         const img = document.createElement('img')
@@ -94,7 +106,8 @@ function loadIcon(it) {
 }
 
 function open(it) {
-  window.familiar.launch(it)
+  if (it.action) window.familiar.quickAction(it.action)
+  else window.familiar.launch(it)
   window.familiar.hideLauncher()
 }
 
@@ -107,7 +120,7 @@ q.addEventListener('keydown', (e) => {
     setActive((active + (e.key === 'ArrowDown' ? 1 : -1) + results.length) % results.length)
   }
   if (e.key === 'Enter' && results[active]) {
-    if (e.ctrlKey) {
+    if (e.ctrlKey && !results[active].action) {
       window.familiar.pin(results[active])
       window.familiar.hideLauncher()
     } else {

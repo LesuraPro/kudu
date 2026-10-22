@@ -39,10 +39,13 @@
   --spring: cubic-bezier(0.34, 1.45, 0.5, 1);
   --mono: 'Cascadia Mono', 'JetBrains Mono', Consolas, ui-monospace, monospace;
   --sans: 'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif;
+  /* Системные части полей (календарик у даты, стрелки у времени) — в тон теме */
+  color-scheme: dark;
 }
 
 @media (prefers-color-scheme: light) {
   :root {
+    color-scheme: light;
     --bg: rgba(230, 239, 241, 0.93);
     --bg-strong: rgba(238, 245, 247, 0.97);
     --solid: #eef5f7;
@@ -156,3 +159,6 @@ button {
 ::-webkit-scrollbar-thumb { border-radius: 4px; background: var(--border-strong); border: 2px solid transparent; background-clip: padding-box; }
 ::-webkit-scrollbar-thumb:hover { background: var(--muted); background-clip: padding-box; }
 ::-webkit-scrollbar-corner { background: transparent; }
+
+/* Атрибут hidden всегда прячет — даже если у элемента в стилях свой display */
+[hidden] { display: none !important; }

@@ -31,6 +31,14 @@ function avatar(profile, size) {
 
 let config = null
 
+// Переключатель-«таблетка» из нескольких вариантов
+const seg = (options, current, onPick) =>
+  el(
+    'div',
+    { className: 'segmented' },
+    options.map(([value, label]) => el('button', { className: current === value ? 'active' : '', textContent: label, onclick: () => onPick(value) }))
+  )
+
 // Превью обоев — те же обои, что поставятся на экран, только уменьшенные.
 // Рисуем один раз: страница перерисовывается часто
 const previews = new Map()
@@ -209,8 +217,127 @@ const pages = {
           'div',
           { className: 'group' },
           row('Верхняя панель', 'На Windows занимает полосу экрана — развёрнутые окна не заезжают под неё', toggle(config.menubar, (on) => f.setSetting('menubar', on))),
-          row('Остров', 'Часы, бегущая строка с треком и плеер при наведении', toggle(config.island, (on) => f.setSetting('island', on)))
+          row('Остров', 'Часы, бегущая строка с треком, плеер и таймер фокуса при наведении', toggle(config.island, (on) => f.setSetting('island', on)))
+        ),
+        el('h2', {}, 'Работа'),
+        el(
+          'div',
+          { className: 'group' },
+          row('Эко-режим', 'Вдвое меньше кадров во всех виджетах — компьютер отдыхает. Само включается от батареи и через 3 минуты без мыши', toggle(!!config.eco, (on) => f.setSetting('eco', on))),
+          row('Запускать вместе с Windows', 'Оболочка появится сама после входа в систему', toggle(await f.getAutostart(), (on) => f.setSetting('autostart', on))),
+          row('Поиск в интернете', 'Последняя строка в Alt+Space, или начни запрос с «?»', seg([['yandex', 'Яндекс'], ['google', 'Google']], config.searchEngine ?? 'yandex', (v) => f.setSetting('searchEngine', v)))
         )
+      ]
+    }
+  },
+
+  schedule: {
+    title: 'Расписание',
+    async render() {
+      const DAYS = [[1, 'Понедельник'], [2, 'Вторник'], [3, 'Среда'], [4, 'Четверг'], [5, 'Пятница'], [6, 'Суббота']]
+      // Обычные времена пар; новая пара занимает следующий свободный слот
+      const SLOTS = [['08:30', '10:00'], ['10:10', '11:40'], ['12:20', '13:50'], ['14:00', '15:30'], ['15:40', '17:10'], ['17:20', '18:50']]
+      let data = (await f.widgetData('schedule')) ?? { days: {} }
+      data.days ??= {}
+      let timer
+      const save = (rerender = false) => {
+        clearTimeout(timer)
+        timer = setTimeout(() => f.setWidgetData('schedule', data), 300)
+        if (rerender) show('schedule', { quiet: true })
+      }
+
+      // Какая неделя сейчас — считается от понедельника «первой недели» (числитель)
+      const monday = (d) => {
+        const x = new Date(d.getFullYear(), d.getMonth(), d.getDate())
+        x.setDate(x.getDate() - ((x.getDay() + 6) % 7))
+        return x
+      }
+      const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+      const parityNow = () => {
+        const [y, m, d] = String(data.weekStart ?? '').split('-').map(Number)
+        const now = new Date()
+        const start = y ? new Date(y, m - 1, d) : new Date(now.getMonth() >= 8 ? now.getFullYear() : now.getFullYear() - 1, 8, 1)
+        const weeks = Math.round((monday(now) - monday(start)) / (7 * 86400000))
+        return ((weeks % 2) + 2) % 2 === 0 ? 'odd' : 'even'
+      }
+      const setParity = (p) => {
+        const m = monday(new Date())
+        if (p === 'even') m.setDate(m.getDate() - 7)
+        data.weekStart = iso(m)
+        save(true)
+      }
+
+      const input = (value, placeholder, onInput, type = 'text', width) => {
+        const i = el('input', { type, value: value ?? '', placeholder })
+        if (width) i.style.width = width
+        i.addEventListener('input', () => onInput(i.value))
+        return i
+      }
+      const select = (options, value, onChange) => {
+        const sel = el('select', {}, options.map(([v, label]) => el('option', { value: v, textContent: label, selected: v === value })))
+        sel.addEventListener('change', () => onChange(sel.value))
+        return sel
+      }
+
+      const pairRow = (day, pair, i) =>
+        el(
+          'div',
+          { className: 'row pair-edit' },
+          input(pair.start, '08:30', (v) => ((pair.start = v), save()), 'time'),
+          input(pair.end, '10:00', (v) => ((pair.end = v), save()), 'time'),
+          input(pair.name, 'Предмет', (v) => ((pair.name = v), save())),
+          input(pair.room, 'Ауд.', (v) => ((pair.room = v), save()), 'text', '64px'),
+          select([['', '—'], ['лек', 'лекция'], ['пр', 'практика'], ['лаб', 'лабораторная'], ['сем', 'семинар']], pair.type ?? '', (v) => ((pair.type = v), save())),
+          select([['all', 'каждую'], ['odd', 'числитель'], ['even', 'знаменатель']], pair.week ?? 'all', (v) => ((pair.week = v), save())),
+          el('button', { className: 'btn danger', textContent: '✕', title: 'Удалить пару', onclick: () => (data.days[day].splice(i, 1), save(true)) })
+        )
+
+      const sample = () => {
+        // Пример: можно поправить под себя
+        const p = (start, name, type, room, week = 'all') => ({ start, end: SLOTS.find((x) => x[0] === start)[1], name, type, room, week })
+        data.days = {
+          1: [p('08:30', 'Теория электрических цепей', 'лек', '214'), p('10:10', 'САПР', 'лаб', '305', 'odd'), p('10:10', 'Физика', 'лаб', '118', 'even'), p('12:20', 'Правовые основы УИС', 'сем', '402')],
+          2: [p('08:30', 'Радиотехника', 'лек', '214'), p('10:10', 'Дифференциальные уравнения', 'пр', '310'), p('12:20', 'Английский язык', 'пр', '207')],
+          3: [p('08:30', 'Физика', 'лек', '101'), p('10:10', 'Теория электрических цепей', 'пр', '214'), p('12:20', 'Физическая подготовка', 'пр', 'спортзал')],
+          4: [p('08:30', 'САПР', 'лек', '305'), p('10:10', 'Радиотехника', 'лаб', '216', 'odd'), p('12:20', 'Дифференциальные уравнения', 'лек', '101')],
+          5: [p('08:30', 'Правовые основы УИС', 'лек', '402'), p('10:10', 'Программирование на Python', 'лаб', '305'), p('12:20', 'Специальная связь', 'лек', '214', 'even')]
+        }
+        save(true)
+      }
+
+      return [
+        el('h1', {}, 'Расписание пар'),
+        el('div', { className: 'sub' }, 'Виджет «Расписание пар» показывает сегодняшние пары: текущую — со временем до конца, следующую — через сколько начнётся. После последней пары — расписание на завтра.'),
+        el(
+          'div',
+          { className: 'group' },
+          row('Сейчас неделя', 'Числитель и знаменатель чередуются; выбери, какая идёт сейчас', seg([['odd', 'Числитель'], ['even', 'Знаменатель']], parityNow(), setParity)),
+          row('Быстрый старт', 'Заполнить примером — потом поправишь под себя', el('button', { className: 'btn', textContent: 'Вставить пример', onclick: sample }), el('button', { className: 'btn danger', textContent: 'Очистить', onclick: () => ((data.days = {}), save(true)) }))
+        ),
+        ...DAYS.flatMap(([day, name]) => {
+          const pairs = (data.days[day] ??= [])
+          return [
+            el('h2', {}, name),
+            el(
+              'div',
+              { className: 'group' },
+              pairs.map((p, i) => pairRow(day, p, i)),
+              el(
+                'div',
+                { className: 'row' },
+                el('button', {
+                  className: 'btn',
+                  textContent: '+ пара',
+                  onclick: () => {
+                    const slot = SLOTS[Math.min(pairs.length, SLOTS.length - 1)]
+                    pairs.push({ start: slot[0], end: slot[1], name: '', room: '', type: '', week: 'all' })
+                    save(true)
+                  }
+                })
+              )
+            )
+          ]
+        })
       ]
     }
   },
@@ -327,6 +454,12 @@ const pages = {
         ['Alt + Space', 'Поиск приложений, игр и файлов'],
         ['Alt + W', 'Показать или скрыть виджеты'],
         ['Ctrl + Alt + Q', 'Выйти из Familiar Lite (программы Windows продолжат работать)'],
+        ['Ctrl + Alt + Пробел', 'Музыка: пауза / играть — из любой программы'],
+        ['Ctrl + Alt + ← →', 'Музыка: предыдущий / следующий трек'],
+        ['Alt + Space, «2+2*3»', 'Калькулятор; «10 км в мили» — перевод единиц; Enter копирует ответ'],
+        ['Alt + Space, «фокус 25»', 'Таймер фокуса в острове; ещё «перерыв», «таймер 10», «стоп»'],
+        ['Alt + Space, «сон», «блок»…', 'Команды: сон, блокировка, выключить через N минут, корзина, эко, тема'],
+        ['Alt + Space, «? запрос»', 'Сразу искать в интернете (Яндекс или Google — в «Панель и остров»)'],
         ['Shift при перетаскивании', 'Конвертер: круговое меню под курсором; ещё раз Shift — другие действия'],
         ['Ctrl + Enter', 'В поиске — закрепить найденное в доке'],
         ['1 – 5', 'В терминале familiar-tty — сцены'],
@@ -363,6 +496,7 @@ const pages = {
 const ICONS = {
   profile: ['.###.', '.###.', '.....', '#####', '#####'],
   appearance: ['.###.', '##..#', '##..#', '##..#', '.###.'],
+  schedule: ['#####', '#...#', '#####', '#.#.#', '#####'],
   widgets: ['##.##', '##.##', '.....', '##.##', '##.##'],
   panel: ['#####', '.....', '.###.', '.....', '.....'],
   weather: ['#.#.#', '.###.', '#####', '.###.', '#.#.#'],

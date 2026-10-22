@@ -15,7 +15,9 @@ const {
   dialog,
   nativeImage,
   powerMonitor,
-  webContents
+  webContents,
+  clipboard,
+  Notification
 } = require('electron')
 const path = require('path')
 const fs = require('fs')
@@ -53,7 +55,11 @@ const WIDGETS = {
   cassette: { title: 'Кассета', width: 340, height: 280 },
   system: { title: 'Нагрузка', width: 320, height: 210, resizable: true },
   games: { title: 'Игры', width: 420, height: 320, resizable: true },
-  tty: { title: 'Терминал familiar-tty', width: 640, height: 420, resizable: true }
+  tty: { title: 'Терминал familiar-tty', width: 640, height: 420, resizable: true },
+  schedule: { title: 'Расписание пар', width: 300, height: 340, resizable: true, minHeight: 220, on: true },
+  workout: { title: 'Тренировки', width: 300, height: 380, resizable: true, minHeight: 320 },
+  notes: { title: 'Заметки', width: 280, height: 260, resizable: true },
+  countdown: { title: 'Обратный отсчёт', width: 230, height: 170, resizable: true, minHeight: 150 }
 }
 
 // Свои виджеты: любой .js в %APPDATA%\familiar-lite\widgets\ (см. README)
@@ -103,6 +109,9 @@ const DEFAULT_CONFIG = {
   // Палитра: moon — «Луна и клинок», nothing — чёрное с красным, wallpaper — по обоям
   palette: 'moon',
   wallpaperPalette: null, // цвета, подобранные по текущим обоям (lib/palette.js)
+  eco: false, // эко-режим: вдвое меньше кадров везде, даже от сети
+  searchEngine: 'yandex', // поиск в интернете из Alt+Space: yandex | google
+  widgetData: {}, // данные виджетов: заметки, тренировки, расписание, обратный отсчёт
   profile: 'Основной',
   // Имя, фото и настройки профилей (см. lib/profiles.js)
   profiles: {},
@@ -241,7 +250,8 @@ let powerState = 'normal'
 
 function updatePower(patch) {
   Object.assign(power, patch)
-  const next = power.fullscreen || power.locked ? 'paused' : power.battery || power.idle ? 'saver' : 'normal'
+  // Эко-режим (настройка) — всегда как от батареи: вдвое меньше кадров
+  const next = power.fullscreen || power.locked ? 'paused' : power.battery || power.idle || config?.eco ? 'saver' : 'normal'
   if (next === powerState) return
   powerState = next
   broadcast('power', powerState)
@@ -764,7 +774,14 @@ function setTheme(t) {
 function setSetting(key, value) {
   if (key === 'theme') return setTheme(value)
   if (key === 'palette') return setPalette(value)
-  if (key === 'island') {
+  if (key === 'autostart') return setAutostart(value)
+  if (key === 'eco') {
+    config.eco = !!value
+    updatePower({})
+  } else if (key === 'searchEngine') {
+    if (!['yandex', 'google'].includes(value)) return
+    config.searchEngine = value
+  } else if (key === 'island') {
     config.island = !!value
     value ? islandWin.showInactive() : islandWin.hide()
   } else if (key === 'menubar') {
@@ -853,6 +870,7 @@ const menus = {
     { type: 'separator' },
     { label: 'Остров сверху', type: 'checkbox', checked: config.island, click: (item) => setSetting('island', item.checked) },
     { label: 'Верхняя панель', type: 'checkbox', checked: config.menubar, click: (item) => setSetting('menubar', item.checked) },
+    { label: 'Эко-режим (меньше нагрузка)', type: 'checkbox', checked: !!config.eco, click: (item) => setSetting('eco', item.checked) },
     { type: 'separator' },
     { label: 'Выйти', accelerator: 'Ctrl+Alt+Q', click: () => app.quit() }
   ]
@@ -1083,6 +1101,95 @@ function ensureSendTo() {
   }
 }
 
+// ---------- Таймер фокуса (Помодоро) ----------
+// Идёт в главном процессе — окна только показывают; остров рисует обратный отсчёт
+
+let focus = null // { endsAt, total, label }
+let focusTimer = null
+
+function startFocus(minutes, label = 'Фокус') {
+  minutes = Math.max(1, Math.min(600, Math.round(minutes) || 25))
+  clearTimeout(focusTimer)
+  focus = { endsAt: Date.now() + minutes * 60000, total: minutes * 60000, label }
+  focusTimer = setTimeout(finishFocus, minutes * 60000)
+  broadcast('focus', focus)
+  showToast({ state: 'info', title: `${label} · ${minutes} мин`, note: 'Отсчёт — в острове сверху. Остановить: «стоп» в Alt+Space' })
+}
+
+function stopFocus() {
+  clearTimeout(focusTimer)
+  focus = null
+  broadcast('focus', null)
+}
+
+function finishFocus() {
+  const label = focus?.label ?? 'Таймер'
+  focus = null
+  broadcast('focus', null)
+  broadcast('focus-done', label)
+  const rest = label === 'Перерыв' ? 'Пора за дело!' : 'Сделай перерыв: «перерыв» в Alt+Space'
+  showToast({ state: 'info', title: `${label} — время вышло`, note: rest })
+  if (Notification.isSupported()) new Notification({ title: `${label} — время вышло`, body: rest, silent: false }).show()
+}
+
+// ---------- Быстрые действия из поиска (Alt+Space) ----------
+
+// Системные команды Windows. Опасные (выключить, перезагрузить, очистить корзину) — только после «Да»
+const SYSTEM_COMMANDS = {
+  lock: { file: 'rundll32.exe', args: ['user32.dll,LockWorkStation'] },
+  sleep: { file: 'powershell.exe', args: ['-NoProfile', '-Command', "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.Application]::SetSuspendState('Suspend', $false, $false)"] },
+  shutdown: { file: 'shutdown.exe', args: (m) => ['/s', '/t', String(m * 60)], confirm: (m) => (m ? `Выключить компьютер через ${m} мин?` : 'Выключить компьютер сейчас?') },
+  restart: { file: 'shutdown.exe', args: ['/r', '/t', '0'], confirm: () => 'Перезагрузить компьютер сейчас?' },
+  cancel: { file: 'shutdown.exe', args: ['/a'] },
+  'empty-bin': { file: 'powershell.exe', args: ['-NoProfile', '-Command', 'Clear-RecycleBin -Force -ErrorAction SilentlyContinue'], confirm: () => 'Очистить корзину? Файлы из неё удалятся навсегда.' }
+}
+
+async function runSystemCommand(cmd, minutes = 0) {
+  const c = SYSTEM_COMMANDS[cmd]
+  if (!c) return
+  if (!isWin) return showToast({ state: 'info', title: 'Только на Windows', note: 'Эта команда работает в Windows' })
+  if (c.confirm) {
+    const { response } = await dialog.showMessageBox({ type: 'question', buttons: ['Да', 'Отмена'], defaultId: 1, cancelId: 1, title: 'Familiar', message: c.confirm(minutes) })
+    if (response !== 0) return
+  }
+  const args = typeof c.args === 'function' ? c.args(minutes) : c.args
+  spawn(c.file, args, { detached: true, stdio: 'ignore', windowsHide: true }).unref()
+  if (cmd === 'shutdown' && minutes) showToast({ state: 'info', title: `Выключение через ${minutes} мин`, note: 'Передумал — «отмена» в Alt+Space' })
+  if (cmd === 'cancel') showToast({ state: 'info', title: 'Выключение отменено' })
+  if (cmd === 'empty-bin') showToast({ state: 'info', title: 'Корзина очищена' })
+}
+
+function quickAction(a) {
+  if (!a || typeof a !== 'object') return
+  if (a.type === 'copy' && typeof a.text === 'string') {
+    clipboard.writeText(a.text.slice(0, 200))
+    showToast({ state: 'info', title: `Скопировано: ${a.text.slice(0, 40)}` })
+  } else if (a.type === 'focus') startFocus(Number(a.minutes), ['Фокус', 'Таймер', 'Перерыв'].includes(a.label) ? a.label : 'Таймер')
+  else if (a.type === 'focus-stop') stopFocus()
+  else if (a.type === 'eco') {
+    setSetting('eco', !config.eco)
+    showToast({ state: 'info', title: config.eco ? 'Эко-режим включён' : 'Эко-режим выключен', note: config.eco ? 'Вдвое меньше кадров — компьютер отдыхает' : 'Анимации снова на полной скорости' })
+  } else if (a.type === 'theme') setTheme(nativeTheme.shouldUseDarkColors ? 'light' : 'dark')
+  else if (a.type === 'media' && ['toggle', 'next', 'prev'].includes(a.cmd)) bridge.send(a.cmd)
+  else if (a.type === 'system') runSystemCommand(a.cmd, Math.max(0, Math.min(600, Number(a.minutes) || 0)))
+  else if (a.type === 'open') {
+    if (a.what === 'settings') openSettings()
+    if (a.what === 'files') openFiles()
+    if (a.what === 'widgets') toggleWidgets()
+  } else if (a.type === 'web' && typeof a.query === 'string') {
+    // Адрес собираем здесь, из запроса, — окно не может подсунуть свою ссылку
+    const q = encodeURIComponent(a.query.slice(0, 300))
+    shell.openExternal(config.searchEngine === 'google' ? `https://www.google.com/search?q=${q}` : `https://yandex.ru/search/?text=${q}`)
+  }
+}
+
+// Автозапуск вместе с Windows (в разработке electron.exe нужен путь к приложению)
+function setAutostart(on) {
+  if (!isWin) return
+  app.setLoginItemSettings({ openAtLogin: !!on, path: process.execPath, args: app.isPackaged ? [] : [app.getAppPath()] })
+}
+const getAutostart = () => (isWin ? app.getLoginItemSettings({ path: process.execPath, args: app.isPackaged ? [] : [app.getAppPath()] }).openAtLogin : false)
+
 // ---------- IPC: что окна могут попросить у главного процесса ----------
 
 let stats = { cpu: 0, mem: 0 }
@@ -1248,6 +1355,23 @@ function registerIpc() {
   ipcMain.handle('dragshift:run', (_e, actionId, paths, options) => runConversion(actionId, paths, options))
   ipcMain.on('dragshift:close', hideRadial)
   ipcMain.on('dragshift:got', () => (radialGotDrag = true))
+  ipcMain.on('quick:action', (_e, a) => quickAction(a))
+  ipcMain.handle('focus:get', () => focus)
+  ipcMain.on('focus:start', (_e, minutes, label) => startFocus(Number(minutes), ['Фокус', 'Перерыв', 'Таймер'].includes(label) ? label : 'Фокус'))
+  ipcMain.on('focus:stop', stopFocus)
+  ipcMain.handle('autostart:get', getAutostart)
+  // Данные виджетов (заметки, тренировки, расписание…): лежат в config.json, пишутся с задержкой
+  ipcMain.handle('widget-data:get', (_e, name) => config.widgetData?.[String(name)] ?? null)
+  ipcMain.handle('widget-data:set', (e, name, value) => {
+    const json = JSON.stringify(value ?? null)
+    if (json.length > 256 * 1024) return false // заметка на 256 КБ — уже не заметка
+    config.widgetData ??= {}
+    config.widgetData[String(name)] = JSON.parse(json)
+    saveConfig({ quiet: true })
+    // Другие окна с тем же виджетом (например, расписание в настройках) — пусть обновятся
+    for (const w of BrowserWindow.getAllWindows()) if (w.webContents !== e.sender && !w.isDestroyed()) w.webContents.send('widget-data', String(name), config.widgetData[String(name)])
+    return true
+  })
   // Палитра нужна окну синхронно, до первой отрисовки
   ipcMain.on('palette:get', (e) => (e.returnValue = paletteCss()))
   ipcMain.handle('palette:list', () => {
@@ -1375,6 +1499,10 @@ if (!app.requestSingleInstanceLock()) {
     globalShortcut.register('Alt+W', toggleWidgets)
     // Как в оригинале: Ctrl+Alt+Q — выйти. Открытые программы Windows продолжат работать
     globalShortcut.register('Control+Alt+Q', () => app.quit())
+    // Музыка с клавиатуры из любой программы
+    globalShortcut.register('Control+Alt+Space', () => bridge.send('toggle'))
+    globalShortcut.register('Control+Alt+Right', () => bridge.send('next'))
+    globalShortcut.register('Control+Alt+Left', () => bridge.send('prev'))
 
     // Что-то положили в папку Familiar или убрали — обновляем «Ярлыки» и «Файлы»
     try {
