@@ -197,8 +197,10 @@ let shownTime = ''
 // крутить полный цикл кадра 60 раз в секунду, даже если рисовать нечего
 function scheduleFrame() {
   // В паузе (игра на весь экран) — только часы раз в 2 секунды; в экономии — вдвое меньше кадров
-  const busy = island.classList.contains('open') || Media.playing()
-  const fps = Power.mode() === 'paused' ? 0.5 : (busy ? 30 : 2) * Power.factor()
+  // Развёрнутый плеер — 30 кадров; свёрнутый с музыкой — 12: строка едет шагами по одной
+  // точке, как на настоящем точечном экране, и вдвое дешевле; тишина — 2 кадра на часы
+  const open = island.classList.contains('open')
+  const fps = Power.mode() === 'paused' || document.hidden ? 0.5 : (open ? 30 : Media.playing() ? 12 : 2) * Power.factor()
   const wait = 1000 / fps - (performance.now() - lastDraw)
   if (wait > 8) setTimeout(() => requestAnimationFrame(frame), wait - 4)
   else requestAnimationFrame(frame)
@@ -211,21 +213,28 @@ function frame(now) {
   scheduleFrame()
 }
 
+// Эквалайзеры (в свёрнутом острове и во вкладках) — на кадрах острова, без CSS-анимации
+// Двигаем только видимый: свёрнутый остров — свой, развёрнутый — тот, что во вкладках
+const [eqMini, eqFull] = [...document.querySelectorAll('.eq')].map((e) => Dot.eq([...e.children]))
+
 function draw(now, dt) {
   const open = island.classList.contains('open')
   const playing = Media.playing()
+  ;(open ? eqFull : eqMini)(now / 1000, playing)
 
   // Свёрнутый остров: если играет музыка — бегущая строка, иначе часы
   const { ctx, w, h } = Dot.fit(mini)
   if (playing) {
     const m = Media.get()
     const s = textStrip(`${m.title} — ${m.artist}   `.toUpperCase())
-    scroll = (scroll + dt * 30) % s.width
+    scroll = (scroll + dt * 24) % s.width
+    // Сдвиг — целыми точками: точки не «плывут» между пикселями
+    const at = Math.floor(scroll / PITCH) * PITCH
     ctx.clearRect(0, 0, w, h)
     ctx.drawImage(dotsBackdrop(Math.ceil(w)).canvas, 0, 0, Math.ceil(w), 7 * PITCH)
     // Текст дважды подряд — строка получается бесконечной
-    ctx.drawImage(s.canvas, -scroll, 0, s.width, 7 * PITCH)
-    ctx.drawImage(s.canvas, s.width - scroll, 0, s.width, 7 * PITCH)
+    ctx.drawImage(s.canvas, -at, 0, s.width, 7 * PITCH)
+    ctx.drawImage(s.canvas, s.width - at, 0, s.width, 7 * PITCH)
     shownTime = ''
   } else {
     const time = new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })

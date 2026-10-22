@@ -16,6 +16,8 @@ Widget.define('cassette', (card) => {
   const state = Widget.el('div', 'state')
   foot.append(counter, state)
   card.append(canvas, pill, foot)
+  // Строка едет только под музыку: на паузе кассета рисует 4 кадра, рывки были бы заметны
+  const scrollText = Dot.marquee(marquee, marqueeText)
 
   Media.onChange((m) => {
     marqueeText.textContent = Media.hasTrack() ? `Now playing · ${m.title} — ${m.artist}` : 'Вставьте кассету · ничего не играет'
@@ -77,6 +79,7 @@ Widget.define('cassette', (card) => {
   }
 
   Widget.loop((t, dt) => {
+    if (Media.playing()) scrollText(dt)
     const { ctx, w, h } = Dot.fit(canvas)
     // Кассета — тёмный «физический» предмет: от светлой темы не зависит, но цвета —
     // из палитры (тушь, лунный свет, клинок). Цвета темы — только для счётчика под ней

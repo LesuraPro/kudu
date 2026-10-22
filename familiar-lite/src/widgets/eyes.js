@@ -7,6 +7,8 @@ Widget.define('eyes', (card) => {
 
   const N = 21 // сетка N×N точек
   let grid = new Uint8Array(N * N) // 0 — погасшая, 1 — белая, 2 — красная
+  let prevGrid = null // что нарисовано сейчас — чтобы не перерисовывать то же самое
+  let prevKey = ''
   const set = (x, y, v = 1) => {
     if (x >= 0 && y >= 0 && x < N && y < N) grid[y * N + x] = v
   }
@@ -21,8 +23,19 @@ Widget.define('eyes', (card) => {
   let blinkUntil = 0
 
   // Позицию курсора спрашиваем у главного процесса — окно ведь его не видит
+  // Как часто спрашивать: курсор двигается — 20 раз в секунду (глаза следят плавно),
+  // замер — 4 раза, спим — раз в секунду. Окно скрыто или пауза — глазам смотреть некуда
+  function trackDelay() {
+    if (document.hidden || Power.mode() === 'paused') return 1000
+    const idle = performance.now() - idleSince
+    return idle < 2000 ? 50 : idle < 30000 ? 250 : 1000
+  }
+  async function trackLoop() {
+    await trackCursor()
+    setTimeout(trackLoop, trackDelay())
+  }
   async function trackCursor() {
-    if (document.hidden || Power.mode() === 'paused') return // окно скрыто или пауза — глазам смотреть некуда
+    if (document.hidden || Power.mode() === 'paused') return
     const p = await window.familiar.cursor()
     const cx = window.screenX + window.innerWidth / 2
     const cy = window.screenY + window.innerHeight / 2
@@ -33,7 +46,7 @@ Widget.define('eyes', (card) => {
     if (inside) surprisedUntil = performance.now() + 400
     lastCursor = p
   }
-  setInterval(trackCursor, 50)
+  trackLoop()
 
   const EYE_W = 6
   const EYE_H = 7
@@ -118,8 +131,13 @@ Widget.define('eyes', (card) => {
       set(16 + k, 3 - k, 2)
     }
 
-    // Отрисовка: круг из точек
+    // Отрисовка: круг из точек. Картинка пиксельная и меняется редко (моргнули, перевели взгляд) —
+    // если ни одна точка не поменялась, холст не трогаем
     const { ctx, w, h } = Dot.fit(canvas)
+    const colorsKey = Dot.css('--text') + Dot.css('--accent') + w + 'x' + h
+    if (prevGrid && prevGrid.length === grid.length && prevKey === colorsKey && prevGrid.every((v, i) => v === grid[i])) return
+    prevGrid = Uint8Array.from(grid)
+    prevKey = colorsKey
     ctx.clearRect(0, 0, w, h)
     const size = Math.min(w, h)
     const pitch = size / N
@@ -135,5 +153,5 @@ Widget.define('eyes', (card) => {
     }
     dots.flush()
     // Курсор двигается или играет музыка — 20 кадров; глаза в покое — 8 (хватит, чтобы моргнуть); спят — 4
-  }, { fps: () => (performance.now() - idleSince > 30000 ? 4 : performance.now() - idleSince < 2000 || Media.playing() ? 20 : 8) })
+  }, { fps: () => (performance.now() - idleSince > 30000 ? 4 : performance.now() - idleSince < 2000 ? 20 : Media.playing() ? 10 : 8) })
 })

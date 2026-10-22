@@ -27,6 +27,30 @@ Widget.define('visualizer', (card) => {
   const src = Widget.el('div', 'src')
   foot.append(pill, src)
   card.append(chips, canvas, foot)
+  const scrollText = Dot.marquee(marquee, marqueeText)
+
+  // Погасшие точки круга не меняются — рисуем их один раз в отдельный холст и потом
+  // только копируем картинкой (сотни кружочков за кадр → одна операция)
+  let backdrop = null
+  function offDots(w, h, n, pitch, ox, oy, color) {
+    const key = `${w}x${h}:${n}:${color}`
+    if (backdrop?.key === key) return backdrop.canvas
+    const dpr = window.devicePixelRatio || 1
+    const c = document.createElement('canvas')
+    c.width = Math.round(w * dpr)
+    c.height = Math.round(h * dpr)
+    const bctx = c.getContext('2d')
+    bctx.scale(dpr, dpr)
+    const center = (n - 1) / 2
+    const b = Dot.batch(bctx)
+    for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+      if (Math.hypot(x - center, y - center) > center + 0.3) continue
+      b.dot(ox + x * pitch + pitch / 2, oy + y * pitch + pitch / 2, pitch * 0.2, color)
+    }
+    b.flush()
+    backdrop = { key, canvas: c }
+    return c
+  }
 
   Media.onChange((m) => {
     marqueeText.textContent = Media.hasTrack() ? `Now playing · ${m.title} — ${m.artist}` : 'Familiar Lite · тишина'
@@ -164,26 +188,28 @@ Widget.define('visualizer', (card) => {
 
     Widget.text(src, Sound.source() === 'loopback' ? 'LIVE AUDIO' : 'SIM')
 
+    scrollText(dt)
     ctx.clearRect(0, 0, w, h)
     const pitch = size / N
     const ox = (w - size) / 2
     const oy = (h - size) / 2
     const c = (N - 1) / 2
     const on = Dot.css('--text')
-    const off = Dot.css('--dot-off')
     const accent = Dot.css('--accent')
+    ctx.drawImage(offDots(w, h, N, pitch, ox, oy, Dot.css('--dot-off')), 0, 0, w, h)
     const dots = Dot.batch(ctx)
     for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+      const b = Math.min(1, grid[y * N + x])
+      if (b < 0.06) continue
       // Только точки внутри круга — как «глаз» в Familiar
       if (Math.hypot(x - c, y - c) > c + 0.3) continue
-      const b = Math.min(1, grid[y * N + x])
-      const px = ox + x * pitch + pitch / 2
-      const py = oy + y * pitch + pitch / 2
-      if (b < 0.06) dots.dot(px, py, pitch * 0.2, off)
+      // Яркость — 6 ступенек: точки одной ступени рисуются одной заливкой
+      const q = Math.round(b * 6) / 6
       // Самые яркие точки на пиках громкости вспыхивают красным
-      else dots.dot(px, py, pitch * (0.2 + b * 0.18), b > 0.92 && lvl > 0.45 ? accent : on, 0.25 + b * 0.75)
+      dots.dot(ox + x * pitch + pitch / 2, oy + y * pitch + pitch / 2, pitch * (0.2 + q * 0.18), b > 0.92 && lvl > 0.45 ? accent : on, 0.25 + q * 0.75)
     }
     dots.flush()
-    // Музыка или живой звук — 30 кадров; часы меняются раз в секунду; тишина — спокойные 12
-  }, { fps: () => (mode === 'clock' ? 4 : Media.playing() || Sound.source() === 'loopback' ? 30 : 12) })
+    // Музыка или живой звук — 24 кадра (глазу хватает); часы меняются раз в секунду; тишина — спокойные 6
+    // Живой звук системы слушаем всегда, но полную частоту включаем, только когда он правда звучит
+  }, { fps: () => (mode === 'clock' ? 4 : Media.playing() || (Sound.source() === 'loopback' && Sound.level() > 0.02) ? 24 : 6) })
 })

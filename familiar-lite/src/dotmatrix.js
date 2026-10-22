@@ -184,5 +184,51 @@
   // Палитру сменили в настройках (событие шлёт preload.js)
   window.addEventListener('familiar-palette', () => colors.clear())
 
-  window.Dot = { glyph, bitmap, width, draw, batch, fit, css }
+  // Эквалайзер из полосок и бегущая строка. Двигаем их сами на кадре окна, а не CSS-анимацией:
+  // бесконечная CSS-анимация заставляет окно перерисовываться 60 раз в секунду, даже если
+  // само окно рисует 2 кадра. Значения округляем и пишем в DOM, только если они поменялись
+  function eq(bars) {
+    const shown = []
+    return (t, playing) => {
+      bars.forEach((bar, i) => {
+        const v = playing ? 0.25 + 0.75 * Math.abs(Math.sin(t * 3.1 + i * 1.9) * Math.sin(t * 1.7 + i * 0.8 + 1)) : 0.25
+        const q = Math.round(v * 12) / 12
+        if (shown[i] !== q) {
+          shown[i] = q
+          bar.style.transform = `scaleY(${q})`
+        }
+      })
+    }
+  }
+
+  // box — видимая область, span — текст внутри. Возвращает step(dt); текст едет, только если не влезает
+  function marquee(box, span, speed = 32) {
+    let x = 0
+    let shown = null
+    let boxW = 0
+    let textW = 0
+    const measure = () => {
+      boxW = box.clientWidth
+      textW = span.scrollWidth
+    }
+    new ResizeObserver(measure).observe(box)
+    new MutationObserver(() => {
+      measure()
+      x = 0
+    }).observe(span, { childList: true, characterData: true, subtree: true })
+    return (dt) => {
+      let px = 0
+      if (textW > boxW) {
+        x += speed * dt
+        if (x > textW + 24) x = -boxW
+        px = Math.round(x)
+      }
+      if (px !== shown) {
+        shown = px
+        span.style.transform = `translateX(${-px}px)`
+      }
+    }
+  }
+
+  window.Dot = { glyph, bitmap, width, draw, batch, fit, css, eq, marquee }
 })()

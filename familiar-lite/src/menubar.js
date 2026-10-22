@@ -95,4 +95,15 @@ function tick() {
 }
 tick()
 setInterval(tick, 1000)
+
+// Эквалайзер у названия трека: 8 кадров в секунду, пока играет; в тишине таймер не крутится
+const eqStep = Dot.eq([...document.querySelectorAll('#now .eq i')])
+let eqTimer = null
+function eqFrame() {
+  const playing = Media.playing() && Power.mode() !== 'paused'
+  eqStep(performance.now() / 1000, playing)
+  eqTimer = playing ? setTimeout(eqFrame, 125) : null
+}
+Media.onChange(() => eqTimer ?? eqFrame())
+Power.onChange?.(() => eqTimer ?? eqFrame())
 $('clock').addEventListener('click', () => window.familiar.toggleWidgets())

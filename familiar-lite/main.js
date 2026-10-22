@@ -357,7 +357,9 @@ const webPreferences = {
   sandbox: true,
   // Окно полностью закрыто другими или свёрнуто — Chromium перестаёт его рисовать.
   // На анимации видимых, но не активных окон это не влияет
-  backgroundThrottling: true
+  backgroundThrottling: true,
+  // Проверка орфографии в полях оболочки не нужна, а словари держатся в памяти
+  spellcheck: false
 }
 
 let dockWin, launcherWin, islandWin, menubarWin, settingsWin, filesWin
@@ -1318,6 +1320,12 @@ async function pollDevices() {
 // ---------- Старт ----------
 
 // Второй экземпляр не запускаем — просто открываем поиск в первом
+// Лишнее из Chromium: медиаклавиши он перехватывал бы себе (музыкой управляет Windows через
+// мост), а «запасной» процесс страницы держит в памяти ещё ~30 МБ просто на всякий случай.
+// Молодое поколение кучи V8 поменьше — тоже минус несколько мегабайт на процесс, без потерь в скорости
+app.commandLine.appendSwitch('disable-features', 'HardwareMediaKeyHandling,MediaSessionService,SpareRendererForSitePerProcess')
+app.commandLine.appendSwitch('js-flags', '--max-semi-space-size=1')
+
 if (!app.requestSingleInstanceLock()) {
   app.quit()
 } else {

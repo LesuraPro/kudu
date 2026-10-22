@@ -9,8 +9,13 @@ const { execFile } = require('child_process')
 const { BrowserWindow, ipcMain } = require('electron')
 const { readMeta, stripMeta, stripLocation } = require('./imagemeta')
 const encoders = require('./encoders')
-const { protectPdf } = require('./pdfcrypt')
-const pdfImages = require('./pdfimages')
+// pdf-lib и всё, что на нём, грузим при первом использовании: оболочке на старте он не нужен
+const protectPdf = (...a) => require('./pdfcrypt').protectPdf(...a)
+const pdfImages = {
+  readImage: (...a) => require('./pdfimages').readImage(...a),
+  imagesByPage: (...a) => require('./pdfimages').imagesByPage(...a),
+  compressPdf: (...a) => require('./pdfimages').compressPdf(...a)
+}
 
 const isWin = process.platform === 'win32'
 

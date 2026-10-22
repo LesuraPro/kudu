@@ -113,6 +113,47 @@ public static class FamiliarWin {
     }
   }
 
+  // A process keeps its path for life: ask Windows once per pid, not every second per window
+  static Dictionary<uint, string> pathCache = new Dictionary<uint, string>();
+  static string CachedPath(uint pid) {
+    string p;
+    if (pathCache.TryGetValue(pid, out p)) return p;
+    p = ProcessPath(pid);
+    if (pathCache.Count > 400) pathCache.Clear(); // pids get reused, so do not keep them forever
+    pathCache[pid] = p;
+    return p;
+  }
+
+  // JSON by hand: much cheaper than a PowerShell pipeline + ConvertTo-Json every second.
+  // Everything outside ASCII is written as \uXXXX, so the console encoding never matters
+  static void Esc(StringBuilder sb, string s) {
+    sb.Append('"');
+    foreach (char c in s ?? "") {
+      if (c == '"' || c == '\\') sb.Append('\\').Append(c);
+      else if (c < 0x20 || c > 0x7e) sb.Append("\\u").Append(((int)c).ToString("x4"));
+      else sb.Append(c);
+    }
+    sb.Append('"');
+  }
+
+  public static string WindowsJson() {
+    StringBuilder sb = new StringBuilder("{\"type\":\"windows\",\"list\":[");
+    bool first = true;
+    foreach (Win w in List()) {
+      if (!first) sb.Append(',');
+      first = false;
+      sb.Append("{\"hwnd\":").Append(w.hwnd).Append(",\"title\":");
+      Esc(sb, w.title);
+      sb.Append(",\"path\":");
+      Esc(sb, w.path);
+      sb.Append(",\"pid\":").Append(w.pid).Append('}');
+    }
+    IntPtr fg = GetForegroundWindow();
+    sb.Append("],\"foreground\":").Append(fg.ToInt64());
+    sb.Append(",\"fullscreen\":").Append(IsFullscreen(fg) ? "true" : "false").Append('}');
+    return sb.ToString();
+  }
+
   // Same rules the taskbar roughly uses: visible, titled, not owned, not a tool window, not cloaked
   static bool IsAppWindow(IntPtr h) {
     if (!IsWindowVisible(h) || GetWindowTextLength(h) == 0) return false;
@@ -135,7 +176,7 @@ public static class FamiliarWin {
         w.hwnd = h.ToInt64();
         w.title = sb.ToString();
         w.pid = pid;
-        w.path = ProcessPath(pid);
+        w.path = CachedPath(pid);
         list.Add(w);
       }
       return true;
@@ -228,7 +269,8 @@ public static class FamiliarHook {
     bool held = false, fired = false, ended = false, keyWas = false;
     POINT downAt = new POINT();
     while (generation == mine) {
-      System.Threading.Thread.Sleep(15);
+      // 15 ms while the button is held (a drag may be starting), 40 ms otherwise: fewer wakeups
+      System.Threading.Thread.Sleep(held ? 15 : 40);
       bool lbtn = Down(0x01);
       bool key = Down(triggerVk);
       bool esc = Down(0x1B);
@@ -421,9 +463,10 @@ while ($true) {
     $pending = $stdin.ReadLineAsync()
   }
 
-  # Media: twice a second while playing, every 2 seconds when paused or silent
+  # Media: once a second while playing (windows extrapolate the position between updates),
+  # every 2 seconds when paused or silent
   $mediaEvery = 8
-  if ($mediaStatus -eq 'playing') { $mediaEvery = 2 }
+  if ($mediaStatus -eq 'playing') { $mediaEvery = 4 }
   if ($mediaNow -or $tick % $mediaEvery -eq 0) {
     $m = Get-MediaState
     $mediaStatus = $m.status
@@ -434,9 +477,7 @@ while ($true) {
   # Windows: checked every second, sent only when something changed
   if ($tick % 4 -eq 0) {
     try {
-      $list = @([FamiliarWin]::List() | ForEach-Object { @{ hwnd = $_.hwnd; title = $_.title; path = $_.path; pid = $_.pid } })
-      $fg = [FamiliarWin]::GetForegroundWindow()
-      $json = (@{ type = 'windows'; list = $list; foreground = $fg.ToInt64(); fullscreen = [FamiliarWin]::IsFullscreen($fg) } | ConvertTo-Json -Compress -Depth 4)
+      $json = [FamiliarWin]::WindowsJson()
       if ($json -ne $lastWindows) {
         $lastWindows = $json
         [Console]::Out.WriteLine($json)
