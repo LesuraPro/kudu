@@ -57,7 +57,6 @@ const WIDGETS = {
   games: { title: 'Игры', width: 420, height: 320, resizable: true },
   tty: { title: 'Терминал familiar-tty', width: 640, height: 420, resizable: true },
   schedule: { title: 'Расписание пар', width: 300, height: 340, resizable: true, minHeight: 220, on: true },
-  workout: { title: 'Тренировки', width: 300, height: 380, resizable: true, minHeight: 320 },
   notes: { title: 'Заметки', width: 280, height: 260, resizable: true },
   countdown: { title: 'Обратный отсчёт', width: 230, height: 170, resizable: true, minHeight: 150 }
 }
@@ -111,7 +110,7 @@ const DEFAULT_CONFIG = {
   wallpaperPalette: null, // цвета, подобранные по текущим обоям (lib/palette.js)
   eco: false, // эко-режим: вдвое меньше кадров везде, даже от сети
   searchEngine: 'yandex', // поиск в интернете из Alt+Space: yandex | google
-  widgetData: {}, // данные виджетов: заметки, тренировки, расписание, обратный отсчёт
+  widgetData: {}, // данные виджетов: заметки, расписание, обратный отсчёт
   profile: 'Основной',
   // Имя, фото и настройки профилей (см. lib/profiles.js)
   profiles: {},
@@ -1360,7 +1359,7 @@ function registerIpc() {
   ipcMain.on('focus:start', (_e, minutes, label) => startFocus(Number(minutes), ['Фокус', 'Перерыв', 'Таймер'].includes(label) ? label : 'Фокус'))
   ipcMain.on('focus:stop', stopFocus)
   ipcMain.handle('autostart:get', getAutostart)
-  // Данные виджетов (заметки, тренировки, расписание…): лежат в config.json, пишутся с задержкой
+  // Данные виджетов (заметки, расписание…): лежат в config.json, пишутся с задержкой
   ipcMain.handle('widget-data:get', (_e, name) => config.widgetData?.[String(name)] ?? null)
   ipcMain.handle('widget-data:set', (e, name, value) => {
     const json = JSON.stringify(value ?? null)

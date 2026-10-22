@@ -261,9 +261,8 @@ canvas { display: block; }
 .w-reminders li small { font-size: 10px; color: var(--accent); flex: none; }
 
 /* ---------- Общее для новых виджетов: шапка «● НАЗВАНИЕ ··· справа» ---------- */
-.w-schedule .head, .w-workout .head, .w-notes .head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
-.w-schedule .week, .w-workout .streak, .w-notes .info { font-size: 9px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--muted); white-space: nowrap; }
-.w-workout .streak { color: var(--accent); }
+.w-schedule .head, .w-notes .head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.w-schedule .week, .w-notes .info { font-size: 9px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--muted); white-space: nowrap; }
 
 /* ---------- Расписание ---------- */
 .w-schedule .pairs { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
@@ -282,28 +281,6 @@ canvas { display: block; }
 .w-schedule .edit { font-size: 10px; color: var(--muted); }
 .w-schedule .edit:hover { color: var(--accent); }
 .w-schedule .empty { font-family: var(--sans); font-size: 12px; color: var(--muted); line-height: 1.5; }
-
-/* ---------- Тренировки ---------- */
-.w-workout .rows { display: flex; flex-direction: column; gap: 10px; }
-.w-workout .ex .top { display: flex; align-items: baseline; gap: 6px; font-family: var(--sans); }
-.w-workout .ex .name { flex: 1; font-size: 13px; }
-.w-workout .ex .count { font: 700 22px var(--mono); }
-.w-workout .ex .goal { font-size: 11px; color: var(--muted); }
-.w-workout .ex.done .count { color: var(--accent); text-shadow: 0 0 10px var(--accent-glow); }
-.w-workout .dots { display: flex; gap: 5px; margin: 5px 0 6px; }
-.w-workout .dots i { width: 7px; height: 7px; border-radius: 50%; background: var(--dot-off); }
-.w-workout .dots i.on { background: var(--text); }
-.w-workout .ex.done .dots i.on { background: var(--accent); }
-.w-workout .btns { display: flex; gap: 5px; }
-.w-workout .btns button { flex: 1; padding: 5px 0; border-radius: 999px; border: 1px solid var(--border); font-size: 11px; transition: background-color 0.15s, border-color 0.15s, transform 0.2s var(--spring); }
-.w-workout .btns button:hover { border-color: var(--accent); background: var(--accent-soft); }
-.w-workout .btns button:active { transform: scale(0.92); }
-.w-workout .btns .minus { flex: 0.7; color: var(--muted); }
-.w-workout canvas.week { flex: 1; min-height: 60px; width: 100%; }
-.w-workout .weight { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--muted); }
-.w-workout .weight input { width: 64px; padding: 4px 8px; border-radius: 8px; border: 1px solid var(--border); background: var(--hover); color: var(--text); font: 12px var(--mono); outline: none; }
-.w-workout .weight input:focus { border-color: var(--accent); }
-.w-workout .weight .note { margin-left: auto; }
 
 /* ---------- Заметки ---------- */
 .w-notes textarea {
