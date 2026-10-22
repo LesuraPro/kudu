@@ -1,9 +1,9 @@
 // Профили: у каждого имя, фото и свои настройки — закреплённые приложения,
-// набор и расположение виджетов, тема и обои.
+// набор и расположение виджетов, тема, палитра и обои.
 // Настройки текущего профиля живут прямо в config (config.pinned и т.д.),
 // а в config.profiles[id] лежат имя, фото и «снимок» настроек остальных профилей.
 
-const KEYS = ['pinned', 'widgets', 'theme', 'wallpaper']
+const KEYS = ['pinned', 'widgets', 'theme', 'wallpaper', 'palette', 'wallpaperPalette']
 
 const snapshot = (config) => structuredClone(Object.fromEntries(KEYS.map((k) => [k, config[k]])))
 

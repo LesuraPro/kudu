@@ -197,97 +197,75 @@ public static class FamiliarWin {
   }
 }
 
-// DragShift trigger. A low-level keyboard hook on its own thread: no polling, it only wakes up
-// on key presses. Fires when the trigger key goes down while the left mouse button is held
-// (something is being dragged) and the foreground window is Explorer, the desktop or ours.
+// DragShift trigger, the same way the original does it (dragshift/trigger.py): every 15 ms read
+// the left button, the trigger key and Esc. "Button held + mouse moved 10 px + key down" is what
+// a Shift+drag of a file looks like, from any app. Polling needs no hook, so it can never stall
+// the system's input the way a slow low-level hook can.
+//   dragshift      - show the menu at x,y
+//   dragshift-key  - the key was pressed again while still dragging (switch rings)
+//   dragshift-end  - the button was released (the drop) or Esc was pressed
 public static class FamiliarHook {
-  delegate IntPtr HookProc(int code, IntPtr wParam, IntPtr lParam);
-
   [StructLayout(LayoutKind.Sequential)]
   struct POINT { public int x, y; }
 
-  [StructLayout(LayoutKind.Sequential)]
-  struct MSG { public IntPtr hwnd; public uint message; public IntPtr wParam; public IntPtr lParam; public uint time; public POINT pt; }
-
-  [DllImport("user32.dll")] static extern IntPtr SetWindowsHookEx(int id, HookProc proc, IntPtr hMod, uint thread);
-  [DllImport("user32.dll")] static extern bool UnhookWindowsHookEx(IntPtr hook);
-  [DllImport("user32.dll")] static extern IntPtr CallNextHookEx(IntPtr hook, int code, IntPtr wParam, IntPtr lParam);
-  [DllImport("user32.dll")] static extern int GetMessage(out MSG msg, IntPtr hwnd, uint min, uint max);
-  [DllImport("user32.dll")] static extern bool PostThreadMessage(uint thread, uint msg, IntPtr w, IntPtr l);
   [DllImport("user32.dll")] static extern short GetAsyncKeyState(int vk);
   [DllImport("user32.dll")] static extern bool GetCursorPos(out POINT p);
-  [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
-  [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint pid);
-  [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetClassName(IntPtr hWnd, StringBuilder s, int n);
-  [DllImport("kernel32.dll")] static extern IntPtr GetModuleHandle(string name);
-  [DllImport("kernel32.dll")] static extern uint GetCurrentThreadId();
 
-  static HookProc proc; // keep a reference, or the GC frees the callback
-  static IntPtr hook = IntPtr.Zero;
-  static uint hookThread = 0;
+  const int DragThreshold = 10;
   static volatile int triggerVk = 0x10; // VK_SHIFT
-  static volatile uint ourPid = 0;
-  static bool keyDown = false;
+  static volatile int generation = 0; // Stop/Start bump it, so an old loop always ends
+  static volatile bool running = false;
 
-  static bool Matches(int vk) {
-    if (triggerVk == 0x10) return vk == 0x10 || vk == 0xA0 || vk == 0xA1; // Shift, left/right
-    if (triggerVk == 0x11) return vk == 0x11 || vk == 0xA2 || vk == 0xA3; // Ctrl
-    if (triggerVk == 0x12) return vk == 0x12 || vk == 0xA4 || vk == 0xA5; // Alt
-    return vk == triggerVk;
+  static bool Down(int vk) { return (GetAsyncKeyState(vk) & 0x8000) != 0; }
+
+  static void Emit(string json) {
+    Console.Out.WriteLine(json);
+    Console.Out.Flush();
   }
 
-  static bool DragSourceAllowed() {
-    IntPtr fg = GetForegroundWindow();
-    uint pid;
-    GetWindowThreadProcessId(fg, out pid);
-    if (pid == ourPid) return true;
-    StringBuilder cls = new StringBuilder(64);
-    GetClassName(fg, cls, cls.Capacity);
-    string c = cls.ToString();
-    return c == "CabinetWClass" || c == "ExploreWClass" || c == "Progman" || c == "WorkerW";
-  }
-
-  static IntPtr OnKey(int code, IntPtr wParam, IntPtr lParam) {
-    if (code >= 0) {
-      int msg = wParam.ToInt32();
-      int vk = Marshal.ReadInt32(lParam);
-      if (Matches(vk)) {
-        bool down = msg == 0x100 || msg == 0x104; // WM_KEYDOWN, WM_SYSKEYDOWN
-        // Auto-repeat sends keydown again and again - react only to the first press
-        if (down && !keyDown && (GetAsyncKeyState(0x01) & 0x8000) != 0 && DragSourceAllowed()) {
-          POINT p;
-          GetCursorPos(out p);
-          Console.Out.WriteLine("{\"type\":\"dragshift\",\"x\":" + p.x + ",\"y\":" + p.y + "}");
-          Console.Out.Flush();
+  static void Loop(object gen) {
+    int mine = (int)gen;
+    bool held = false, fired = false, ended = false, keyWas = false;
+    POINT downAt = new POINT();
+    while (generation == mine) {
+      System.Threading.Thread.Sleep(15);
+      bool lbtn = Down(0x01);
+      bool key = Down(triggerVk);
+      bool esc = Down(0x1B);
+      POINT p;
+      GetCursorPos(out p);
+      if (!lbtn) {
+        if (fired && !ended) Emit("{\"type\":\"dragshift-end\"}");
+        held = fired = ended = false;
+      } else {
+        if (!held) { held = true; downAt = p; }
+        if (!fired) {
+          int moved = Math.Abs(p.x - downAt.x) + Math.Abs(p.y - downAt.y);
+          if (key && moved >= DragThreshold) {
+            fired = true;
+            Emit("{\"type\":\"dragshift\",\"x\":" + p.x + ",\"y\":" + p.y + "}");
+          }
+        } else if (!ended) {
+          if (esc) { ended = true; Emit("{\"type\":\"dragshift-end\"}"); }
+          else if (key && !keyWas) Emit("{\"type\":\"dragshift-key\"}");
         }
-        keyDown = down;
       }
+      keyWas = key;
     }
-    return CallNextHookEx(hook, code, wParam, lParam);
   }
 
-  static void Loop() {
-    hookThread = GetCurrentThreadId();
-    proc = OnKey;
-    hook = SetWindowsHookEx(13, proc, GetModuleHandle(null), 0); // WH_KEYBOARD_LL
-    MSG m;
-    while (GetMessage(out m, IntPtr.Zero, 0, 0) > 0) { }
-    UnhookWindowsHookEx(hook);
-    hook = IntPtr.Zero;
-  }
-
-  public static void Start(int vk, uint pid) {
+  public static void Start(int vk) {
     triggerVk = vk;
-    ourPid = pid;
-    if (hookThread != 0) return;
+    if (running) return;
+    running = true;
     System.Threading.Thread t = new System.Threading.Thread(Loop);
     t.IsBackground = true;
-    t.Start();
+    t.Start(generation);
   }
 
   public static void Stop() {
-    if (hookThread != 0) PostThreadMessage(hookThread, 0x12, IntPtr.Zero, IntPtr.Zero); // WM_QUIT
-    hookThread = 0;
+    running = false;
+    generation++;
   }
 }
 '@
@@ -415,8 +393,7 @@ function Invoke-BridgeCommand($line) {
     }
     'wallpaper' { $null = [FamiliarWin]::Wallpaper($arg) }
     'hook' {
-      $a = $arg -split ' '
-      [FamiliarHook]::Start([int]$a[0], [uint32]$a[1])
+      [FamiliarHook]::Start([int]$arg)
     }
     'hook-off' { [FamiliarHook]::Stop() }
   }

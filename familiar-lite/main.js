@@ -14,7 +14,8 @@ const {
   desktopCapturer,
   dialog,
   nativeImage,
-  powerMonitor
+  powerMonitor,
+  webContents
 } = require('electron')
 const path = require('path')
 const fs = require('fs')
@@ -29,6 +30,7 @@ const files = require('./lib/files')
 const profiles = require('./lib/profiles')
 const { createHost } = require('./lib/hosts')
 const convert = require('./lib/convert')
+const palette = require('./lib/palette')
 
 const isWin = process.platform === 'win32'
 // FAMILIAR_DEMO=1 — выдуманные трек, окна, игры и наушники (удобно проверять без Windows)
@@ -97,7 +99,10 @@ const DEFAULT_CONFIG = {
   weather: { city: 'Воронеж', latitude: 51.67, longitude: 39.18 },
   island: true,
   menubar: true,
-  wallpaper: null, // 'planet' | 'grid' | … | 'custom:<путь к картинке>'
+  wallpaper: null, // 'moon' | 'planet' | … | 'custom:<путь к картинке>'
+  // Палитра: moon — «Луна и клинок», nothing — чёрное с красным, wallpaper — по обоям
+  palette: 'moon',
+  wallpaperPalette: null, // цвета, подобранные по текущим обоям (lib/palette.js)
   profile: 'Основной',
   // Имя, фото и настройки профилей (см. lib/profiles.js)
   profiles: {},
@@ -212,6 +217,12 @@ function onBridgeMessage(msg) {
     updateForeground()
   } else if (msg.type === 'dragshift') {
     onDragshiftTrigger(msg)
+  } else if (msg.type === 'dragshift-key') {
+    // Ещё раз нажали Shift, не отпуская файл, — переключаем кольцо (если файл уже над меню)
+    if (radialMode === 'drag' && radialGotDrag) radialWin.webContents.send('radial:toggle')
+  } else if (msg.type === 'dragshift-end') {
+    // Кнопку отпустили (бросили файл) или нажали Esc. Даём броску долететь и прячем меню
+    setTimeout(() => radialMode === 'drag' && hideRadial(), 120)
   } else if (msg.type === 'appbar' && menubarWin && !menubarWin.isDestroyed()) {
     // Windows выделил полосу под панель — ставим окно ровно в неё
     const [l, t, r, b] = msg.rect
@@ -559,14 +570,21 @@ function toggleWidgets() {
 // ---------- Обычные окна: настройки и файлы ----------
 
 // Окно с родной кнопкой «закрыть/свернуть» Windows, но без стандартной рамки
-function appWindow(file, query, size) {
+// Цвета окна до загрузки страницы и кнопок «свернуть/закрыть» — из палитры
+function windowColors() {
+  const p = currentPalette()
   const dark = nativeTheme.shouldUseDarkColors
+  return { background: dark ? p.solid.dark : p.solid.light, symbols: dark ? p.dark['--text'] : p.light['--text'] }
+}
+
+function appWindow(file, query, size) {
+  const colors = windowColors()
   const win = new BrowserWindow({
     ...size,
     frame: false,
     titleBarStyle: 'hidden',
-    titleBarOverlay: { color: '#00000000', symbolColor: dark ? '#f2f2f2' : '#111111', height: 44 },
-    backgroundColor: dark ? '#0b0b0d' : '#f2f2f2',
+    titleBarOverlay: { color: '#00000000', symbolColor: colors.symbols, height: 44 },
+    backgroundColor: colors.background,
     show: false,
     webPreferences
   })
@@ -596,15 +614,56 @@ function openFiles(dir) {
   filesWin = appWindow('files.html', { dir }, { width: 900, height: 580, minWidth: 560, minHeight: 360 })
 }
 
-// Окна с родной кнопкой «закрыть» перекрашиваем при смене темы
-nativeTheme.on('updated', () => {
-  const dark = nativeTheme.shouldUseDarkColors
-  for (const w of [settingsWin, filesWin]) {
+// Окна с родной кнопкой «закрыть» перекрашиваем при смене темы и палитры
+function recolorAppWindows() {
+  const colors = windowColors()
+  for (const w of [settingsWin, filesWin, ...toolWins]) {
     if (!w || w.isDestroyed()) continue
-    w.setTitleBarOverlay({ color: '#00000000', symbolColor: dark ? '#f2f2f2' : '#111111', height: 44 })
-    w.setBackgroundColor(dark ? '#0b0b0d' : '#f2f2f2')
+    w.setTitleBarOverlay({ color: '#00000000', symbolColor: colors.symbols, height: 44 })
+    w.setBackgroundColor(colors.background)
   }
-})
+}
+nativeTheme.on('updated', recolorAppWindows)
+
+// ---------- Палитра ----------
+// Значения CSS-переменных для всех окон. Окна получают их через preload (palette:get / palette)
+
+function currentPalette() {
+  if (config.palette === 'wallpaper' && config.wallpaperPalette) return config.wallpaperPalette
+  return palette.PRESETS[config.palette] ?? palette.PRESETS.moon
+}
+
+let paletteCache = null
+function paletteCss() {
+  const p = currentPalette()
+  if (paletteCache?.p !== p) paletteCache = { p, css: palette.toCss(p) }
+  return paletteCache.css
+}
+
+function broadcastPalette() {
+  const css = paletteCss()
+  for (const wc of webContents.getAllWebContents()) if (!wc.isDestroyed()) wc.send('palette', css)
+  recolorAppWindows()
+}
+
+function setPalette(name) {
+  if (!['moon', 'nothing', 'wallpaper'].includes(name)) return
+  config.palette = name
+  saveConfig()
+  broadcastPalette()
+}
+
+// Подобрать палитру по картинке обоев (в рабочем окне конвертера, он умеет любые форматы)
+async function updateWallpaperPalette(file) {
+  try {
+    const { rgba } = await convert.imagePixels(convertCtx(), file)
+    config.wallpaperPalette = palette.fromPixels(rgba, { rgba: true })
+    saveConfig()
+    if (config.palette === 'wallpaper') broadcastPalette()
+  } catch (err) {
+    console.error('Палитра по обоям:', err.message)
+  }
+}
 
 // ---------- Профили ----------
 
@@ -615,6 +674,7 @@ function applyProfile() {
   closeAllWidgets()
   syncWidgets()
   updateDock()
+  broadcastPalette()
   if (config.wallpaper) applyWallpaper(config.wallpaper).catch((e) => console.error('Обои:', e))
 }
 
@@ -642,15 +702,18 @@ async function chooseProfilePhoto(id) {
 
 // ---------- Обои ----------
 
-const WALLPAPERS = { planet: 'Красная планета', grid: 'Точечная сетка', horizon: 'Горизонт', paper: 'Светлая бумага' }
+const WALLPAPERS = { moon: 'Луна и клинок', planet: 'Красная планета', grid: 'Точечная сетка', horizon: 'Горизонт', paper: 'Светлая бумага' }
 
-// value — название стиля ('planet') или 'custom:<путь к своей картинке>'
+// value — название стиля ('moon') или 'custom:<путь к своей картинке>'
 async function applyWallpaper(value) {
   const file = value.startsWith('custom:') ? value.slice('custom:'.length) : await renderWallpaper(value)
+  const changed = config.wallpaper !== value || !config.wallpaperPalette
   config.wallpaper = value
   saveConfig()
   if (isWin) bridge.send(`wallpaper ${file}`)
   else if (!isDemo) shell.showItemInFolder(file)
+  // Палитра «Из обоев» подстраивается под новые обои
+  if (changed) updateWallpaperPalette(file)
   return file
 }
 
@@ -680,8 +743,11 @@ async function chooseWallpaper() {
   if (canceled || !filePaths[0]) return null
   const dir = path.join(app.getPath('userData'), 'wallpapers')
   fs.mkdirSync(dir, { recursive: true })
-  const dest = path.join(dir, `custom-${Date.now()}${path.extname(filePaths[0])}`)
-  fs.copyFileSync(filePaths[0], dest)
+  const ext = path.extname(filePaths[0]).toLowerCase()
+  let dest = path.join(dir, `custom-${Date.now()}${ext}`)
+  // JPG, PNG и BMP Windows ставит всегда, а WebP и GIF — не на каждой системе: перекодируем
+  if (['.jpg', '.jpeg', '.png', '.bmp'].includes(ext)) fs.copyFileSync(filePaths[0], dest)
+  else dest = await convert.toJpg(convertCtx(), filePaths[0], dest.replace(/\.[^.]+$/, '.jpg'))
   return applyWallpaper(`custom:${dest}`)
 }
 
@@ -695,6 +761,7 @@ function setTheme(t) {
 
 function setSetting(key, value) {
   if (key === 'theme') return setTheme(value)
+  if (key === 'palette') return setPalette(value)
   if (key === 'island') {
     config.island = !!value
     value ? islandWin.showInactive() : islandWin.hide()
@@ -810,6 +877,8 @@ function fullMenu(index, running) {
 
 let radialWin, toastWin
 let radialMode = null
+let radialGotDrag = false // файл уже долетел до меню
+let radialWatch = null
 let lastResult = null
 const RADIAL_SIZE = 440
 const TOAST_SIZE = { width: 400, height: 132 }
@@ -818,16 +887,16 @@ const TRIGGER_VK = { shift: 0x10, ctrl: 0x11, alt: 0x12 }
 const convertCtx = () => ({ srcDir: SRC, webPreferences, settings: config.dragshift })
 
 // Действия для меню; у «≤ размер» в подписи — лимит из настроек
-function dragshiftActions(kinds) {
-  const set = convert.actionsFor(kinds)
+function dragshiftActions(items) {
+  const set = convert.actionsFor(items)
   const label = (a) => (a.id === 'compress-target' ? { ...a, label: `≤ ${config.dragshift.targetKb >= 1024 ? config.dragshift.targetKb / 1024 + ' МБ' : config.dragshift.targetKb + ' КБ'}` } : a)
   return { convert: set.convert.map(label), tools: set.tools.map(label) }
 }
 
-// Хук клавиатуры живёт в мосте (bridge.ps1); включаем или выключаем по настройке
+// Слежение за мышью и клавишей живёт в мосте (bridge.ps1); включаем или выключаем по настройке
 function applyDragshiftHook() {
   if (!isWin) return
-  if (config.dragshift.enabled) bridge.send(`hook ${TRIGGER_VK[config.dragshift.key] ?? 0x10} ${process.pid}`)
+  if (config.dragshift.enabled) bridge.send(`hook ${TRIGGER_VK[config.dragshift.key] ?? 0x10}`)
   else bridge.send('hook-off')
 }
 
@@ -849,7 +918,8 @@ function openRadial(point, { files: paths = null } = {}) {
   const y = Math.round(Math.min(Math.max(point.y - half, area.y), area.y + area.height - RADIAL_SIZE))
   radialWin.setBounds({ x, y, width: RADIAL_SIZE, height: RADIAL_SIZE })
   radialMode = paths ? 'click' : 'drag'
-  const actions = paths ? dragshiftActions(paths.map(convert.kindOf)) : null
+  radialGotDrag = false
+  const actions = paths ? dragshiftActions(paths.map(convert.itemOfPath)) : null
   radialWin.webContents.send('radial:open', { mode: radialMode, files: paths, actions })
   if (paths) {
     radialWin.show()
@@ -862,14 +932,30 @@ function openRadial(point, { files: paths = null } = {}) {
 
 function hideRadial() {
   radialMode = null
+  clearInterval(radialWatch)
   radialWin?.hide()
 }
 
+// Как в оригинале: Shift + зажатая кнопка + сдвиг на 10 px — это может быть и не файл, а
+// перетаскивание окна или выделение текста с Shift. Если курсор уходит, а файл до меню так
+// и не долетел (≈0,75 с движения), — убираемся с дороги
+function watchNoDrag(start) {
+  clearInterval(radialWatch)
+  let idle = 0
+  radialWatch = setInterval(() => {
+    if (radialMode !== 'drag' || radialGotDrag) return clearInterval(radialWatch)
+    const p = screen.getCursorScreenPoint()
+    if (Math.abs(p.x - start.x) + Math.abs(p.y - start.y) > 6 && ++idle > 15) hideRadial()
+  }, 50)
+}
+
 function onDragshiftTrigger(msg) {
-  if (!config.dragshift.enabled) return
-  // Меню уже открыто — повторное нажатие переключает «Формат» и «Инструменты»
-  if (radialWin?.isVisible()) return radialWin.webContents.send('radial:toggle')
-  openRadial(screen.screenToDipPoint({ x: msg.x, y: msg.y }))
+  // В игре на весь экран Shift + мышь — это бег и стрельба, а не перетаскивание файла
+  if (!config.dragshift.enabled || power.fullscreen) return
+  if (radialWin?.isVisible()) return
+  const point = screen.screenToDipPoint({ x: msg.x, y: msg.y })
+  openRadial(point)
+  watchNoDrag(point)
 }
 
 function showToast(t) {
@@ -898,12 +984,14 @@ function filesWord(n) {
   return `${n} ${d === 1 && dd !== 11 ? 'файл' : d >= 2 && d <= 4 && (dd < 12 || dd > 14) ? 'файла' : 'файлов'}`
 }
 
-async function runConversion(actionId, paths) {
+async function runConversion(actionId, paths, options) {
   hideRadial()
+  // Инструменты с настройками (обрезка, пометки, пароль…) открывают своё окно
+  if (convert.isWindowTool(actionId)) return openTool(actionId, paths)
   const what = paths.length > 1 ? filesWord(paths.length) : path.basename(paths[0])
   showToast({ state: 'busy', title: `${convert.labelOf(actionId)} · ${what}` })
   try {
-    const res = await convert.run(convertCtx(), actionId, paths)
+    const res = await convert.run(convertCtx(), actionId, paths, options)
     lastResult = res
     const names = res.outputs.map((o) => path.basename(o))
     showToast({
@@ -912,10 +1000,45 @@ async function runConversion(actionId, paths) {
       note: res.note,
       thumb: thumbOf(res.outputs[0])
     })
+    return res
   } catch (err) {
     console.error('Конвертер:', err)
     showToast({ state: 'error', title: `${convert.labelOf(actionId)} · ${what}`, note: err.message })
+    return { error: err.message }
   }
+}
+
+// ---------- Окна инструментов ----------
+// Обрезка, правка, пометки, «скрыть», фон, метаданные, сжатие, размер, пароль на PDF.
+// Окно работает с картинкой само (canvas), а сюда присылает готовые байты — сохранить рядом
+
+const toolWins = new Set()
+const toolFiles = new Map() // какие файлы окну можно читать: id окна → пути
+const TOOL_SIZE = {
+  'tool-protect': { width: 460, height: 440, resizable: false },
+  'tool-meta': { width: 600, height: 600, minWidth: 480, minHeight: 420 }
+}
+
+function openTool(id, paths) {
+  const size = TOOL_SIZE[id] ?? { width: 1060, height: 720, minWidth: 780, minHeight: 540 }
+  const query = { tool: id.slice('tool-'.length), files: JSON.stringify(paths), quality: String(config.dragshift.quality), target: String(config.dragshift.targetKb) }
+  const win = appWindow('tool.html', query, size)
+  const wcId = win.webContents.id
+  toolFiles.set(wcId, new Set(paths))
+  toolWins.add(win)
+  win.on('closed', () => {
+    toolWins.delete(win)
+    toolFiles.delete(wcId)
+  })
+}
+
+const toolAllowed = (e, p) => toolFiles.get(e.sender.id)?.has(p)
+
+async function toolSave(src, suffix, ext, bytes) {
+  const out = convert.saveEdited(config.dragshift, src, suffix, ext, bytes)
+  lastResult = { outputs: [out] }
+  showToast({ state: 'done', title: path.basename(out), note: `${suffix} · ${Math.round(bytes.length / 1024)} КБ`, thumb: thumbOf(out) })
+  return out
 }
 
 async function toastAction(action) {
@@ -1119,9 +1242,27 @@ function registerIpc() {
   })
 
   // Конвертер
-  ipcMain.handle('dragshift:actions', (_e, mimes) => dragshiftActions((mimes ?? []).map(convert.kindOfMime)))
-  ipcMain.handle('dragshift:run', (_e, actionId, paths) => runConversion(actionId, paths))
+  ipcMain.handle('dragshift:actions', (_e, mimes) => dragshiftActions((mimes ?? []).map(convert.itemOfMime)))
+  ipcMain.handle('dragshift:run', (_e, actionId, paths, options) => runConversion(actionId, paths, options))
   ipcMain.on('dragshift:close', hideRadial)
+  ipcMain.on('dragshift:got', () => (radialGotDrag = true))
+  // Палитра нужна окну синхронно, до первой отрисовки
+  ipcMain.on('palette:get', (e) => (e.returnValue = paletteCss()))
+  ipcMain.handle('palette:list', () => {
+    const swatch = (p) => p && [p.dark['--solid'], p.dark['--text'], p.dark['--muted'], p.dark['--accent'], p.dark['--petal']]
+    return { moon: swatch(palette.PRESETS.moon), nothing: swatch(palette.PRESETS.nothing), wallpaper: swatch(config.wallpaperPalette) }
+  })
+  ipcMain.handle('tool:read', (e, p) => {
+    if (!toolAllowed(e, p)) return null
+    const bytes = fs.readFileSync(p)
+    return { path: p, name: path.basename(p), ext: path.extname(p).slice(1).toLowerCase(), size: bytes.length, bytes }
+  })
+  ipcMain.handle('tool:meta', async (e, p) => {
+    if (!toolAllowed(e, p)) return null
+    return convert.kindOf(p) === 'pdf' ? convert.pdfMeta(p) : convert.readMeta(fs.readFileSync(p))
+  })
+  ipcMain.handle('tool:save', (e, src, suffix, ext, bytes) => (toolAllowed(e, src) ? toolSave(src, suffix, ext, bytes) : null))
+  ipcMain.handle('tool:run', (e, actionId, paths, options) => (paths.every((p) => toolAllowed(e, p)) ? runConversion(actionId, paths, options) : null))
   // Значок под курсором при перетаскивании: красная точка 24×24 в нашем стиле
   let dragIcon = null
   ipcMain.on('file:drag', (e, file) => {

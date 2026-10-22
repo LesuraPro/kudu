@@ -33,13 +33,21 @@ Widget.define('cassette', (card) => {
     ctx.roundRect(x, y, w, h, r)
   }
 
-  function reel(ctx, x, y, tapeR, hubR, angle, on, off, accent) {
-    // Намотанная плёнка
-    ctx.fillStyle = 'rgba(40, 20, 20, 0.9)'
+  // Смешать два цвета #rrggbb: k = 0 — первый, 1 — второй
+  function mix(a, b, k) {
+    const pa = parseInt(a.slice(1), 16)
+    const pb = parseInt(b.slice(1), 16)
+    const ch = (sh) => Math.round(((pa >> sh) & 255) * (1 - k) + ((pb >> sh) & 255) * k)
+    return `rgb(${ch(16)}, ${ch(8)}, ${ch(0)})`
+  }
+
+  function reel(ctx, x, y, tapeR, hubR, angle, on, tape, line, accent) {
+    // Намотанная плёнка — тёмно-винная, как тень клинка
+    ctx.fillStyle = tape
     ctx.beginPath()
     ctx.arc(x, y, tapeR, 0, Math.PI * 2)
     ctx.fill()
-    ctx.strokeStyle = 'rgba(255,255,255,0.08)'
+    ctx.strokeStyle = line
     for (let r = hubR + 4; r < tapeR; r += 3) {
       ctx.beginPath()
       ctx.arc(x, y, r, 0, Math.PI * 2)
@@ -70,14 +78,16 @@ Widget.define('cassette', (card) => {
 
   Widget.loop((t, dt) => {
     const { ctx, w, h } = Dot.fit(canvas)
-    // Кассета — тёмный «физический» предмет: её цвета не зависят от темы.
-    // Цвета темы — только для счётчика под ней
+    // Кассета — тёмный «физический» предмет: от светлой темы не зависит, но цвета —
+    // из палитры (тушь, лунный свет, клинок). Цвета темы — только для счётчика под ней
     const on = Dot.css('--text')
     const off = Dot.css('--dot-off')
     const accent = Dot.css('--accent')
-    const INK = '#f2f2f2'
-    const INK_MUTED = '#8b8b90'
-    const SCREW = 'rgba(255,255,255,0.12)'
+    const INK = Dot.css('--ink-text')
+    const INK_MUTED = Dot.css('--ink-dim')
+    const SCREW = Dot.css('--ink-line')
+    const BODY = mix(Dot.css('--ink'), INK, 0.07)
+    const TAPE = mix(Dot.css('--ink'), accent, 0.3)
     ctx.clearRect(0, 0, w, h)
 
     // Корпус
@@ -86,9 +96,9 @@ Widget.define('cassette', (card) => {
     const bx = (w - bw) / 2
     const by = (h - bh) / 2
     roundRect(ctx, bx, by, bw, bh, 14)
-    ctx.fillStyle = 'rgba(22, 22, 24, 0.95)'
+    ctx.fillStyle = BODY
     ctx.fill()
-    ctx.strokeStyle = 'rgba(255,255,255,0.1)'
+    ctx.strokeStyle = SCREW
     ctx.stroke()
     // Винтики по углам
     ctx.fillStyle = SCREW
@@ -129,8 +139,8 @@ Widget.define('cassette', (card) => {
     angleL += dt * speed * 3 * (maxR / tapeL)
     angleR += dt * speed * 3 * (maxR / Math.max(tapeR, hubR))
     const cy = wy + wh / 2
-    reel(ctx, wx + ww * 0.25, cy, tapeL, hubR, angleL, INK, SCREW, accent)
-    reel(ctx, wx + ww * 0.75, cy, Math.max(tapeR, hubR), hubR, angleR, INK, SCREW, accent)
+    reel(ctx, wx + ww * 0.25, cy, tapeL, hubR, angleL, INK, TAPE, SCREW, accent)
+    reel(ctx, wx + ww * 0.75, cy, Math.max(tapeR, hubR), hubR, angleR, INK, TAPE, SCREW, accent)
 
     // Счётчик времени точками
     const c = Dot.fit(counter)

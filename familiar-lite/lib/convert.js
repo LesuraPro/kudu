@@ -7,7 +7,10 @@ const os = require('os')
 const { pathToFileURL } = require('url')
 const { execFile } = require('child_process')
 const { BrowserWindow, ipcMain } = require('electron')
-const { readMeta, stripMeta } = require('./imagemeta')
+const { readMeta, stripMeta, stripLocation } = require('./imagemeta')
+const encoders = require('./encoders')
+const { protectPdf } = require('./pdfcrypt')
+const pdfImages = require('./pdfimages')
 
 const isWin = process.platform === 'win32'
 
@@ -38,71 +41,91 @@ function kindOfMime(mime) {
   if (mime.startsWith('text/') || mime === 'application/json') return 'text'
   return null
 }
+const extOfMime = (mime) => ({ 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif', 'image/bmp': 'bmp', 'image/x-icon': 'ico', 'image/vnd.microsoft.icon': 'ico', 'image/avif': 'avif' })[mime] ?? null
+// Что тащат или выбрали: { kind, ext } — по пути или по MIME
+const itemOfPath = (p) => ({ kind: kindOf(p), ext: extOf(p) === 'jpeg' ? 'jpg' : extOf(p) })
+const itemOfMime = (mime) => ({ kind: kindOfMime(mime), ext: extOfMime(mime) })
 
 // ---------- Действия ----------
-// mode: convert — «Конвертация», tools — «Инструменты» (переключаются повторным Shift)
+// convert — «Формат», tools — «Правка» (переключаются повторным Shift).
+// hint — подсказка в центре меню при наведении; window — открывает окно инструмента.
+// Набор и порядок — как у оригинала DragShift
 
 const ACTIONS = {
   image: {
     convert: [
-      { id: 'to-jpg', label: 'JPG' },
-      { id: 'to-png', label: 'PNG' },
-      { id: 'to-webp', label: 'WebP' },
-      { id: 'to-pdf', label: 'PDF' }
+      { id: 'to-jpg', label: 'JPG', hint: 'маленький, для всего', ext: 'jpg' },
+      { id: 'to-png', label: 'PNG', hint: 'без потерь, прозрачность', ext: 'png' },
+      { id: 'to-webp', label: 'WebP', hint: 'самый лёгкий для сайтов', ext: 'webp' },
+      { id: 'to-tif', label: 'TIFF', hint: 'печать и архив', ext: 'tif' },
+      { id: 'to-bmp', label: 'BMP', hint: 'без сжатия', ext: 'bmp' },
+      { id: 'to-pdf', label: 'PDF', hint: 'документ', ext: 'pdf' },
+      { id: 'to-ico', label: 'ICO', hint: 'значок Windows', ext: 'ico' },
+      { id: 'to-gif', label: 'GIF', hint: 'старый веб, 256 цветов', ext: 'gif' }
     ],
     tools: [
-      { id: 'compress', label: 'Сжать' },
-      { id: 'compress-target', label: '≤ размер' },
-      { id: 'resize', label: 'Уменьшить' },
-      { id: 'square', label: 'Квадрат' },
-      { id: 'enhance', label: 'Улучшить' },
-      { id: 'gray', label: 'Ч/Б' },
-      { id: 'rotate', label: 'Повернуть' },
-      { id: 'clean', label: 'Без метаданных' }
+      { id: 'tool-compress', label: 'Сжать', hint: 'уменьшить вес файла', window: true },
+      { id: 'tool-resize', label: 'Размер', hint: 'другие пиксели', window: true },
+      { id: 'tool-crop', label: 'Обрезать', hint: 'рамка и пропорции', window: true },
+      { id: 'tool-edit', label: 'Правка', hint: 'свет · цвет · поворот', window: true },
+      { id: 'tool-annotate', label: 'Пометки', hint: 'стрелки · текст · шаги', window: true },
+      { id: 'tool-redact', label: 'Скрыть', hint: 'замазать личное', window: true },
+      { id: 'tool-bg', label: 'Фон', hint: 'подложка и тень', window: true },
+      { id: 'tool-meta', label: 'Метаданные', hint: 'посмотреть · убрать GPS', window: true }
     ]
   },
   pdf: {
     convert: [
-      { id: 'pdf-jpg', label: 'JPG' },
-      { id: 'pdf-png', label: 'PNG' },
-      { id: 'pdf-txt', label: 'TXT' }
+      { id: 'pdf-jpg', label: 'JPG', hint: 'каждая страница — картинка' },
+      { id: 'pdf-png', label: 'PNG', hint: 'страницы без потерь' },
+      { id: 'pdf-docx', label: 'DOCX', hint: 'редактировать в Word' },
+      { id: 'pdf-txt', label: 'TXT', hint: 'только текст' }
     ],
     tools: [
-      { id: 'pdf-split', label: 'Разделить' },
-      { id: 'pdf-rotate', label: 'Повернуть' },
-      { id: 'merge', label: 'Склеить' }
+      { id: 'pdf-compress', label: 'Сжать', hint: 'уменьшить вес файла' },
+      { id: 'pdf-split', label: 'Разделить', hint: 'по файлу на страницу' },
+      { id: 'pdf-rotate', label: 'Повернуть', hint: 'на 90° по часовой' },
+      { id: 'merge', label: 'Склеить', hint: 'в один PDF', many: true },
+      { id: 'tool-protect', label: 'Пароль', hint: 'запереть паролем', window: true },
+      { id: 'pdf-images', label: 'Картинки', hint: 'достать все изображения' },
+      { id: 'tool-meta', label: 'Метаданные', hint: 'посмотреть · убрать', window: true }
     ]
   },
   docx: {
     convert: [
-      { id: 'docx-pdf', label: 'PDF' },
-      { id: 'docx-txt', label: 'TXT' }
+      { id: 'docx-pdf', label: 'PDF', hint: 'для печати и отправки' },
+      { id: 'docx-txt', label: 'TXT', hint: 'только текст' }
     ],
     tools: []
   },
   text: {
     convert: [
-      { id: 'text-pdf', label: 'PDF' },
-      { id: 'text-docx', label: 'DOCX' }
+      { id: 'text-pdf', label: 'PDF', hint: 'для печати и отправки' },
+      { id: 'text-docx', label: 'DOCX', hint: 'открыть в Word' }
     ],
     tools: []
   }
 }
 
-// Набор действий для того, что тащат. Несколько картинок/PDF — можно склеить в один PDF
-function actionsFor(kinds) {
-  const unique = [...new Set(kinds.filter(Boolean))]
-  if (!unique.length) return { convert: [], tools: [] }
-  if (unique.length > 1) {
+// Набор действий для того, что тащат. В свой же формат не предлагаем;
+// несколько картинок или PDF — можно склеить в один PDF
+function actionsFor(items) {
+  items = items.filter((i) => i?.kind)
+  const kinds = [...new Set(items.map((i) => i.kind))]
+  if (!kinds.length) return { convert: [], tools: [] }
+  if (kinds.length > 1) {
     // Смесь типов: только склеить всё, что умеем, в один PDF
-    const mergeable = unique.every((k) => k === 'image' || k === 'pdf')
-    return { convert: mergeable ? [{ id: 'merge', label: 'Один PDF' }] : [], tools: [] }
+    const mergeable = kinds.every((k) => k === 'image' || k === 'pdf')
+    return { convert: mergeable ? [{ id: 'merge', label: 'Один PDF', hint: `${items.length} файла → 1 PDF` }] : [], tools: [] }
   }
-  const set = ACTIONS[unique[0]]
-  const many = kinds.length > 1
+  const set = ACTIONS[kinds[0]]
+  const many = items.length > 1
+  const exts = new Set(items.map((i) => i.ext))
   return {
-    convert: set.convert.map((a) => (many && a.id === 'to-pdf' ? { ...a, label: 'Один PDF' } : a)),
-    tools: set.tools.filter((a) => a.id !== 'merge' || many)
+    convert: set.convert
+      .filter((a) => !(a.ext && exts.size === 1 && exts.has(a.ext)))
+      .map((a) => (many && a.id === 'to-pdf' ? { ...a, label: 'Один PDF', hint: `${items.length} картинок → 1 PDF` } : a)),
+    tools: set.tools.filter((a) => !a.many || many)
   }
 }
 
@@ -124,8 +147,16 @@ function outPath(src, suffix, ext, settings, dir = outDir(src, settings)) {
   return p
 }
 
+// Сначала пишем во временный скрытый файл, потом переименовываем: в Проводнике
+// никогда не появится недописанный файл (как atomic_save у оригинала)
 function write(p, data) {
-  fs.writeFileSync(p, Buffer.from(data))
+  const tmp = path.join(path.dirname(p), `.~${path.basename(p)}.part`)
+  try {
+    fs.writeFileSync(tmp, Buffer.from(data))
+    fs.renameSync(tmp, p)
+  } finally {
+    fs.rmSync(tmp, { force: true })
+  }
   return p
 }
 
@@ -271,12 +302,14 @@ function sizeNote(before, after) {
   return `${size(before)} → ${size(after)}${delta > 0 ? ` (−${delta}%)` : delta < 0 ? ` (+${-delta}%)` : ''}`
 }
 
-// Картинку — в рабочее окно, результат — рядом с оригиналом
+// Картинку — в рабочее окно, результат — рядом с оригиналом.
+// BMP, TIFF и GIF окно возвращает пикселями — файл собираем здесь
 async function imageJob(ctx, src, { to, suffix, transform, quality }) {
   const data = fs.readFileSync(src)
   const ext = to ?? (['jpg', 'jpeg', 'png', 'webp'].includes(extOf(src)) ? (extOf(src) === 'jpeg' ? 'jpg' : extOf(src)) : 'png')
   const res = await runJob(ctx, { op: 'image', data, mime: MIME[extOf(src)], to: ext, quality: quality ?? ctx.settings.quality, transform })
-  const out = write(outPath(src, suffix, ext, ctx.settings), res.data)
+  const bytes = res.rgba ? encoders[{ bmp: 'bmp', tif: 'tiff', gif: 'gif' }[ext]]({ data: res.rgba, width: res.width, height: res.height }) : res.data
+  const out = write(outPath(src, suffix, ext, ctx.settings), bytes)
   return { out, note: `${res.width}×${res.height}` }
 }
 
@@ -327,10 +360,92 @@ async function pdfText(src) {
   return pages.join('\n\n')
 }
 
+// ---------- PDF → Word ----------
+// Текст и картинки по страницам разбирает рабочее окно (pdf.js), документ собираем тут
+
+async function pdfToDocx(ctx, f) {
+  const { Document, Packer, Paragraph, TextRun, HeadingLevel, ImageRun, PageBreak } = require('docx')
+  const { pages } = await runJob(ctx, { op: 'pdfDocx', data: fs.readFileSync(f) })
+  // Основной размер шрифта — тот, которым набрано больше всего букв; что заметно крупнее — заголовок
+  const weight = new Map()
+  for (const page of pages) for (const b of page.blocks) if (b.kind === 'text') weight.set(b.size, (weight.get(b.size) ?? 0) + b.text.length)
+  const body = [...weight].sort((a, b) => b[1] - a[1])[0]?.[0] ?? 11
+  const children = []
+  pages.forEach((page, n) => {
+    if (n) children.push(new Paragraph({ children: [new PageBreak()] }))
+    for (const b of page.blocks) {
+      if (b.kind === 'image') {
+        // Ширина как на странице PDF, но не шире полосы набора (6,5 дюйма)
+        const widthPx = Math.min(624, (b.widthPt * 96) / 72)
+        const heightPx = widthPx * (b.heightPt / b.widthPt)
+        children.push(new Paragraph({ children: [new ImageRun({ type: b.type, data: Buffer.from(b.data), transformation: { width: Math.round(widthPx), height: Math.round(heightPx) } })] }))
+      } else if (b.size >= body * 1.25 && b.text.length < 200) {
+        children.push(new Paragraph({ text: b.text, heading: b.size >= body * 1.6 ? HeadingLevel.HEADING_1 : HeadingLevel.HEADING_2 }))
+      } else {
+        children.push(new Paragraph({ children: [new TextRun({ text: b.text, bold: b.bold && b.text.length < 160, italics: b.italic })] }))
+      }
+    }
+  })
+  const images = pages.reduce((n, p) => n + p.blocks.filter((b) => b.kind === 'image').length, 0)
+  const doc = new Document({ sections: [{ children }] })
+  const out = write(outPath(f, null, 'docx', ctx.settings), await Packer.toBuffer(doc))
+  return { out, note: `${pages.length} стр.${images ? ` · ${images} картинок` : ''}` }
+}
+
+// ---------- Метаданные PDF ----------
+
+const PDF_META = [
+  ['Title', 'Название'], ['Author', 'Автор'], ['Subject', 'Тема'], ['Keywords', 'Ключевые слова'],
+  ['Creator', 'Программа'], ['Producer', 'Создано в'], ['CreationDate', 'Создан'], ['ModDate', 'Изменён']
+]
+
+async function pdfMeta(f) {
+  const { PDFDocument, PDFName, PDFDict } = require('pdf-lib')
+  const doc = await PDFDocument.load(fs.readFileSync(f), { ignoreEncryption: true, updateMetadata: false })
+  const info = doc.context.lookup(doc.context.trailerInfo.Info)
+  const fields = []
+  if (info instanceof PDFDict) {
+    for (const [key, label] of PDF_META) {
+      const v = info.lookup(PDFName.of(key))
+      let text = v?.decodeText?.() ?? ''
+      // Даты в PDF — «D:20261022184200+03'00'»
+      const d = text.match(/^D:(\d{4})(\d{2})?(\d{2})?(\d{2})?(\d{2})?/)
+      if (d) text = `${d[3] ?? '01'}.${d[2] ?? '01'}.${d[1]}${d[4] ? ` ${d[4]}:${d[5] ?? '00'}` : ''}`
+      if (text.trim()) fields.push([label, text.trim()])
+    }
+  }
+  fields.push(['Страниц', String(doc.getPageCount())])
+  const xmp = !!doc.catalog.lookup(PDFName.of('Metadata'))
+  if (xmp) fields.push(['XMP', 'есть'])
+  return { fields, hasMeta: fields.length > 1 }
+}
+
+async function pdfStripMeta(ctx, f) {
+  const { PDFDocument, PDFName, PDFRef } = require('pdf-lib')
+  const doc = await PDFDocument.load(fs.readFileSync(f), { updateMetadata: false })
+  const ctxPdf = doc.context
+  // pdf-lib пишет в файл все объекты, даже ненужные, — поэтому удаляем сами объекты
+  const info = ctxPdf.trailerInfo.Info
+  if (info instanceof PDFRef) ctxPdf.delete(info)
+  ctxPdf.trailerInfo.Info = undefined
+  const xmp = doc.catalog.get(PDFName.of('Metadata'))
+  if (xmp instanceof PDFRef) ctxPdf.delete(xmp)
+  doc.catalog.delete(PDFName.of('Metadata'))
+  return write(outPath(f, 'без метаданных', 'pdf', ctx.settings), await doc.save())
+}
+
 const handlers = {
   'to-jpg': (ctx, files) => eachFile(files, (f) => imageJob(ctx, f, { to: 'jpg' })),
   'to-png': (ctx, files) => eachFile(files, (f) => imageJob(ctx, f, { to: 'png' })),
   'to-webp': (ctx, files) => eachFile(files, (f) => imageJob(ctx, f, { to: 'webp' })),
+  'to-bmp': (ctx, files) => eachFile(files, (f) => imageJob(ctx, f, { to: 'bmp' })),
+  'to-tif': (ctx, files) => eachFile(files, (f) => imageJob(ctx, f, { to: 'tif' })),
+  'to-gif': (ctx, files) => eachFile(files, (f) => imageJob(ctx, f, { to: 'gif' })),
+  'to-ico': (ctx, files) =>
+    eachFile(files, async (f) => {
+      const { images } = await runJob(ctx, { op: 'ico', data: fs.readFileSync(f), mime: MIME[extOf(f)] })
+      return { out: write(outPath(f, null, 'ico', ctx.settings), encoders.ico(images)), note: `${images.map((i) => i.size).join(', ')} px` }
+    }),
   'to-pdf': async (ctx, files) => ({ outputs: [await mergeToPdf(ctx, files)] }),
   merge: async (ctx, files) => ({ outputs: [await mergeToPdf(ctx, files, 'вместе')] }),
 
@@ -376,6 +491,66 @@ const handlers = {
         : (await imageJob(ctx, f, { suffix: 'без метаданных', quality: 0.95 })).out
       return { out, note: found ? `удалено: ${found}` : 'метаданные удалены' }
     }),
+
+  // Только геолокацию: камера, дата и поворот остаются, пиксели — байт в байт
+  'img-no-location': (ctx, files) =>
+    eachFile(files, async (f) => {
+      const stripped = stripLocation(fs.readFileSync(f))
+      if (!stripped) return { out: null, note: 'геолокации нет' }
+      return { out: write(outPath(f, 'без геолокации', extOf(f), ctx.settings), stripped), note: 'геолокация удалена, остальное на месте' }
+    }),
+
+  'pdf-docx': (ctx, files) => eachFile(files, (f) => pdfToDocx(ctx, f)),
+
+  'pdf-compress': (ctx, files) =>
+    eachFile(files, async (f) => {
+      const { PDFDocument } = require('pdf-lib')
+      const data = fs.readFileSync(f)
+      const doc = await PDFDocument.load(data, { updateMetadata: false })
+      const quality = Math.min(ctx.settings.quality, 0.75)
+      const images = await pdfImages.compressPdf(doc, (image, opts) => runJob(ctx, { op: 'jpeg', image, ...opts }), { maxSide: 1600, quality })
+      const bytes = await doc.save({ useObjectStreams: true })
+      if (bytes.length >= data.length * 0.97) return { out: null, note: 'уже сжат — сильнее без потерь не выйдет' }
+      const out = write(outPath(f, 'сжато', 'pdf', ctx.settings), bytes)
+      return { out, note: `${sizeNote(data.length, bytes.length)}${images ? ` · картинок пережато: ${images}` : ''}` }
+    }),
+
+  'pdf-images': (ctx, files) =>
+    eachFile(files, async (f) => {
+      const { PDFDocument } = require('pdf-lib')
+      const doc = await PDFDocument.load(fs.readFileSync(f), { ignoreEncryption: true, updateMetadata: false })
+      const found = pdfImages.imagesByPage(doc)
+      const ready = []
+      let skipped = 0
+      for (const { page, stream } of found) {
+        const img = pdfImages.readImage(stream)
+        if (!img || img.width < 16 || img.height < 16) {
+          if (!img) skipped++
+          continue
+        }
+        // JPEG — как есть, без потерь; остальное — в PNG
+        ready.push({ page, ext: img.jpeg ? 'jpg' : 'png', bytes: img.jpeg ?? encoders.png(img) })
+      }
+      if (!ready.length) return { out: null, note: skipped ? 'картинки в редком формате — достать не вышло' : 'картинок нет' }
+      const base = path.join(outDir(f, ctx.settings), `${path.basename(f, path.extname(f))} (картинки)`)
+      let dir = base
+      for (let i = 2; fs.existsSync(dir); i++) dir = `${base} ${i}`
+      fs.mkdirSync(dir, { recursive: true })
+      const counts = {}
+      const outs = ready.map((r) => {
+        counts[r.page] = (counts[r.page] ?? 0) + 1
+        return write(path.join(dir, `стр. ${r.page} — ${counts[r.page]}.${r.ext}`), r.bytes)
+      })
+      return { outs, note: `${outs.length} шт.${skipped ? ` · пропущено ${skipped} (редкий формат)` : ''}` }
+    }),
+
+  'pdf-protect': (ctx, files, options) =>
+    eachFile(files, async (f) => ({
+      out: write(outPath(f, 'с паролем', 'pdf', ctx.settings), await protectPdf(fs.readFileSync(f), options?.password)),
+      note: 'AES-256 · печать и копирование разрешены'
+    })),
+
+  'pdf-meta-strip': (ctx, files) => eachFile(files, async (f) => ({ out: await pdfStripMeta(ctx, f), note: 'название, автор, программа и XMP удалены' })),
 
   'pdf-jpg': (ctx, files) => eachFile(files, (f) => pdfToImages(ctx, f, 'jpg')),
   'pdf-png': (ctx, files) => eachFile(files, (f) => pdfToImages(ctx, f, 'png')),
@@ -466,10 +641,10 @@ async function eachFile(files, fn) {
   return { outputs, note: notes.join(' · ') }
 }
 
-async function run(ctx, actionId, files) {
+async function run(ctx, actionId, files, options) {
   const handler = handlers[actionId]
   if (!handler) throw new Error(`Неизвестное действие: ${actionId}`)
-  const result = await handler(ctx, files)
+  const result = await handler(ctx, files, options)
   const outputs = result.outputs ?? []
   let note = result.note ?? ''
   // Получился один PDF и пояснения нет — подскажем, сколько в нём страниц
@@ -481,8 +656,32 @@ async function run(ctx, actionId, files) {
   return { outputs, note }
 }
 
+// Пиксели уменьшенной картинки (RGBA) — для палитры «Из обоев»
+async function imagePixels(ctx, file) {
+  return runJob(ctx, { op: 'pixels', data: fs.readFileSync(file), mime: MIME[extOf(file)] })
+}
+
+// Перекодировать картинку в JPG (обои в WebP/GIF Windows ставить не любит)
+async function toJpg(ctx, src, dest) {
+  const res = await runJob(ctx, { op: 'image', data: fs.readFileSync(src), mime: MIME[extOf(src)], to: 'jpg', quality: 0.95 })
+  return write(dest, res.data)
+}
+
+// Сохранить то, что сделали в окне инструмента (обрезка, пометки…): байты уже готовы
+function saveEdited(settings, src, suffix, ext, bytes) {
+  return write(outPath(src, suffix, ext, settings), bytes)
+}
+
 const allLabels = Object.fromEntries(
   Object.values(ACTIONS).flatMap((set) => [...set.convert, ...set.tools].map((a) => [a.id, a.label]))
 )
+Object.assign(allLabels, {
+  'img-no-location': 'Без геолокации', clean: 'Без метаданных', 'pdf-protect': 'Пароль', 'pdf-meta-strip': 'Без метаданных',
+  compress: 'Сжать', 'compress-target': 'Сжать до размера', resize: 'Размер'
+})
 
-module.exports = { KINDS, MIME, kindOf, kindOfMime, actionsFor, run, labelOf: (id) => allLabels[id] ?? id }
+module.exports = {
+  KINDS, MIME, kindOf, kindOfMime, itemOfPath, itemOfMime, actionsFor, run, saveEdited, readMeta, pdfMeta, imagePixels, toJpg,
+  labelOf: (id) => allLabels[id] ?? id,
+  isWindowTool: (id) => id.startsWith('tool-')
+}

@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'" />
+    <title>Инструмент</title>
+    <link rel="stylesheet" href="theme.css" />
+    <style>
+      html, body { height: 100%; }
+      body { display: grid; grid-template-rows: 44px 1fr; background: var(--bg-strong); font-family: var(--sans); }
+
+      header {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 0 150px 0 18px;
+        border-bottom: 1px solid var(--border);
+        -webkit-app-region: drag;
+        min-width: 0;
+      }
+      .logo { font-family: var(--mono); font-size: 11px; font-weight: 700; letter-spacing: 0.22em; display: flex; align-items: center; gap: 8px; white-space: nowrap; }
+      .logo::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 10px var(--accent-glow); }
+      .file { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+      .layout { display: grid; grid-template-columns: 1fr 290px; min-height: 0; }
+      .layout.narrow { grid-template-columns: 1fr; }
+
+      /* Сцена: картинка на «шахматке» — видно прозрачность */
+      .stage { position: relative; min-width: 0; min-height: 0; overflow: hidden; background: var(--stage); }
+      .stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; }
+      .stage.crosshair canvas { cursor: crosshair; }
+      .stage .status {
+        position: absolute;
+        left: 50%;
+        bottom: 14px;
+        transform: translateX(-50%);
+        padding: 6px 14px;
+        border-radius: 999px;
+        background: var(--bg);
+        border: 1px solid var(--border);
+        font-family: var(--mono);
+        font-size: 11px;
+        letter-spacing: 0.06em;
+        color: var(--muted);
+        white-space: nowrap;
+        pointer-events: none;
+      }
+      .stage .status b { color: var(--text); font-weight: 400; }
+      .stage .text-input {
+        position: absolute;
+        min-width: 120px;
+        padding: 2px 4px;
+        border: 1px dashed var(--accent);
+        background: transparent;
+        color: inherit;
+        font: 600 20px var(--sans);
+        outline: none;
+      }
+
+      aside { border-left: 1px solid var(--border); display: flex; flex-direction: column; min-height: 0; }
+      .controls { flex: 1; overflow-y: auto; padding: 18px 18px 8px; }
+      .controls h2 { margin: 18px 0 9px; font-family: var(--mono); font-size: 10px; font-weight: 400; letter-spacing: 0.18em; text-transform: uppercase; color: var(--muted); }
+      .controls h2:first-child { margin-top: 0; }
+      .hint { color: var(--muted); font-size: 12px; line-height: 1.5; margin: 0 0 4px; }
+
+      .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+      .chip {
+        padding: 6px 11px;
+        border-radius: 999px;
+        border: 1px solid var(--border);
+        font-family: var(--mono);
+        font-size: 11px;
+        color: var(--muted);
+        transition: background-color 0.2s, color 0.2s, border-color 0.2s, transform 0.25s var(--spring);
+      }
+      .chip:hover { color: var(--text); border-color: var(--border-strong); }
+      .chip:active { transform: scale(0.94); }
+      .chip.active { background: var(--accent-soft); border-color: var(--accent); color: var(--text); }
+      .chip svg { width: 13px; height: 13px; vertical-align: -2px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+      .slider { display: grid; grid-template-columns: 1fr auto; gap: 4px 10px; align-items: center; margin-bottom: 12px; font-size: 12px; }
+      .slider output { font-family: var(--mono); font-size: 11px; color: var(--muted); min-width: 40px; text-align: right; }
+      .slider input { grid-column: 1 / -1; }
+      input[type='range'] { -webkit-appearance: none; width: 100%; height: 18px; background: transparent; margin: 0; }
+      input[type='range']::-webkit-slider-runnable-track { height: 4px; border-radius: 2px; background: linear-gradient(to right, var(--accent) var(--fill, 50%), var(--border-strong) var(--fill, 50%)); }
+      input[type='range']::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        width: 16px;
+        height: 16px;
+        margin-top: -6px;
+        border-radius: 50%;
+        background: var(--text);
+        border: 3px solid var(--bg-strong);
+        box-shadow: 0 0 0 1px var(--border-strong);
+        transition: transform 0.2s var(--spring);
+      }
+      input[type='range']:active::-webkit-slider-thumb { transform: scale(1.2); }
+
+      .field { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; font-size: 12px; }
+      .field input[type='number'], .field input[type='text'], .field input[type='password'] {
+        flex: 1;
+        min-width: 0;
+        padding: 8px 10px;
+        border-radius: 9px;
+        border: 1px solid var(--border);
+        background: var(--hover);
+        color: var(--text);
+        font: 13px var(--mono);
+        outline: none;
+      }
+      .field input:focus { border-color: var(--accent); }
+      .field .unit { color: var(--muted); font-family: var(--mono); font-size: 11px; }
+
+      .swatches { display: flex; flex-wrap: wrap; gap: 8px; }
+      .swatch { width: 26px; height: 26px; border-radius: 50%; border: 2px solid transparent; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.15); transition: transform 0.25s var(--spring); }
+      .swatch:hover { transform: scale(1.12); }
+      .swatch.active { border-color: var(--text); }
+      .swatch.wide { width: 54px; border-radius: 13px; }
+      input[type='color'] { width: 34px; height: 26px; padding: 0; border: 1px solid var(--border); border-radius: 8px; background: none; }
+
+      table.meta { width: 100%; border-collapse: collapse; font-size: 13px; }
+      table.meta td { padding: 9px 0; border-bottom: 1px solid var(--border); vertical-align: top; }
+      table.meta td:first-child { color: var(--muted); width: 42%; padding-right: 12px; }
+      table.meta tr.alert td { color: var(--accent); }
+      .empty { color: var(--muted); font-size: 13px; padding: 20px 0; }
+
+      .meter { height: 4px; border-radius: 2px; background: var(--border); overflow: hidden; margin: 2px 0 6px; }
+      .meter i { display: block; height: 100%; width: 0; background: var(--accent); transition: width 0.3s, background-color 0.3s; }
+
+      footer { display: flex; gap: 8px; padding: 14px 18px; border-top: 1px solid var(--border); }
+      footer button {
+        flex: 1;
+        padding: 10px 12px;
+        border-radius: 999px;
+        border: 1px solid var(--border);
+        font-family: var(--mono);
+        font-size: 11px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        transition: background-color 0.2s, border-color 0.2s, transform 0.25s var(--spring), opacity 0.2s;
+      }
+      footer button:hover { border-color: var(--border-strong); background: var(--hover); }
+      footer button:active { transform: scale(0.96); }
+      footer .primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); box-shadow: 0 0 18px var(--accent-glow); }
+      footer .primary:hover { background: var(--accent); filter: brightness(1.1); }
+      footer button:disabled { opacity: 0.4; pointer-events: none; }
+
+      .compare { position: absolute; top: 14px; left: 14px; display: flex; gap: 6px; }
+      .compare .chip { background: var(--bg); }
+      .split-label { position: absolute; top: 14px; font-family: var(--mono); font-size: 10px; letter-spacing: 0.16em; color: var(--muted); background: var(--bg); padding: 4px 9px; border-radius: 999px; pointer-events: none; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="logo" id="title">ИНСТРУМЕНТ</div>
+      <div class="file" id="file"></div>
+    </header>
+    <div class="layout" id="layout">
+      <div class="stage" id="stage">
+        <canvas id="view"></canvas>
+        <div class="status" id="status"></div>
+      </div>
+      <aside>
+        <div class="controls" id="controls"></div>
+        <footer>
+          <button id="reset">Сбросить</button>
+          <button id="save" class="primary">Сохранить</button>
+        </footer>
+      </aside>
+    </div>
+    <script src="tool.js"></script>
+  </body>
+</html>

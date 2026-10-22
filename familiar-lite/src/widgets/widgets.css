@@ -78,29 +78,30 @@ canvas { display: block; }
 .w-cassette .state { font-size: 9px; letter-spacing: 0.16em; color: var(--muted); }
 
 /* ---------- Терминал ---------- */
-.w-tty { padding: 0; gap: 0; background: rgba(8, 8, 10, 0.92); }
+.w-tty { padding: 0; gap: 0; background: color-mix(in srgb, var(--ink) 94%, transparent); color: var(--ink-text); }
 .w-tty .titlebar {
   display: flex;
   align-items: center;
   gap: 6px;
   padding: 10px 14px;
   font-size: 11px;
-  color: var(--muted);
-  border-bottom: 1px solid var(--border);
+  color: var(--ink-dim);
+  border-bottom: 1px solid var(--ink-line);
 }
-.w-tty .titlebar i { width: 9px; height: 9px; border-radius: 50%; background: var(--dot-off); }
-.w-tty .titlebar i:first-child { background: var(--accent); }
+/* Терминал всегда тёмный — его цвета из «чернил» палитры, не из темы */
+.w-tty .titlebar i { width: 9px; height: 9px; border-radius: 50%; background: var(--ink-line); }
+.w-tty .titlebar i:first-child { background: var(--accent); box-shadow: 0 0 6px var(--accent-glow); }
 .w-tty .titlebar span { flex: 1; text-align: center; margin-right: 40px; }
 .w-tty canvas { flex: 1; min-height: 0; width: 100%; }
-.w-tty .tabs { display: flex; justify-content: center; gap: 6px; padding: 10px; border-top: 1px solid var(--border); }
+.w-tty .tabs { display: flex; justify-content: center; gap: 6px; padding: 10px; border-top: 1px solid var(--ink-line); }
 .w-tty .tabs button {
   padding: 3px 10px;
   font-size: 11px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--ink-line);
   border-radius: 4px;
-  color: var(--muted);
+  color: var(--ink-dim);
 }
-.w-tty .tabs button.active { background: #f2f2f2; color: #000; border-color: #f2f2f2; }
+.w-tty .tabs button.active { background: var(--accent); color: var(--on-accent); border-color: var(--accent); box-shadow: 0 0 10px var(--accent-glow); }
 
 /* ---------- Глазки ---------- */
 #card.w-eyes { padding: 10px; border-radius: 50%; }
@@ -186,7 +187,7 @@ canvas { display: block; }
   line-height: 1;
   padding: 1px 2px;
   border-radius: 3px;
-  color: #fff;
+  color: var(--on-accent);
   background: var(--accent);
 }
 .w-shortcuts .name {
@@ -223,7 +224,7 @@ canvas { display: block; }
 .w-calendar .day:hover { background: var(--hover); transform: scale(1.1); }
 .w-calendar .day.other { color: var(--muted); opacity: 0.45; }
 .w-calendar .day.weekend:not(.today) { color: var(--muted); }
-.w-calendar .day.today { background: var(--accent); color: #fff; font-weight: 700; }
+.w-calendar .day.today { background: var(--accent); color: var(--on-accent); font-weight: 700; box-shadow: 0 0 10px var(--accent-glow); }
 .w-calendar .day.selected:not(.today) { box-shadow: inset 0 0 0 1px var(--text); }
 .w-calendar .day.has::after {
   content: '';
@@ -236,7 +237,7 @@ canvas { display: block; }
   border-radius: 50%;
   background: var(--accent);
 }
-.w-calendar .day.today.has::after { background: #fff; }
+.w-calendar .day.today.has::after { background: var(--on-accent); }
 .w-calendar ul { list-style: none; margin: 0; padding: 0; flex: 1; min-height: 0; overflow-y: auto; }
 .w-calendar li { display: flex; align-items: center; gap: 8px; font-size: 12px; padding: 3px 0; cursor: pointer; }
 .w-calendar li .box { width: 10px; height: 10px; flex: none; border-radius: 50%; border: 1.5px solid var(--muted); }

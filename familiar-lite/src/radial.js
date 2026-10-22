@@ -14,7 +14,6 @@ let actions = { convert: [], tools: [] }
 let ring = 'convert'
 let hot = -1 // индекс подсвеченного сектора, -2 — центр
 let kindsKey = ''
-let closeTimer = null
 
 // Иконки инструментов 5×5 точек; у форматов (JPG, PDF…) вместо иконки — само название
 const ICONS = {
@@ -28,7 +27,18 @@ const ICONS = {
   'pdf-rotate': ['.###.', '#...#', '#..##', '#....', '.###.'],
   clean: ['.###.', '#.#.#', '.###.', '..#..', '..#..'],
   'pdf-split': ['##.##', '##.##', '##.##', '##.##', '##.##'],
-  merge: ['#...#', '.#.#.', '..#..', '..#..', '..#..']
+  merge: ['#...#', '.#.#.', '..#..', '..#..', '..#..'],
+  'tool-compress': ['#...#', '.#.#.', '.....', '.#.#.', '#...#'],
+  'tool-resize': ['###..', '#....', '#.#.#', '....#', '..###'],
+  'tool-crop': ['.#...', '#####', '.#.#.', '.####', '...#.'],
+  'tool-edit': ['..#..', '#.#.#', '.###.', '#.#.#', '..#..'],
+  'tool-annotate': ['....#', '...#.', '..#..', '.#...', '#....'],
+  'tool-redact': ['#####', '#####', '.....', '#####', '#####'],
+  'tool-bg': ['#####', '#...#', '#.#.#', '#...#', '#####'],
+  'tool-meta': ['..#..', '.....', '..#..', '..#..', '..#..'],
+  'tool-protect': ['.###.', '.#.#.', '#####', '##.##', '#####'],
+  'pdf-compress': ['#...#', '.#.#.', '.....', '.#.#.', '#...#'],
+  'pdf-images': ['#####', '#...#', '#.#.#', '##.##', '#####']
 }
 
 const el = (tag, attrs = {}) => {
@@ -112,6 +122,7 @@ function render({ animate = 'show' } = {}) {
   const hint = el('text', { class: 'hint', x: C, y: C + 30 })
   const other = ring === 'convert' ? actions.tools.length : actions.convert.length
   hint.textContent = other ? (mode === 'click' ? 'Tab — ещё действия' : 'Shift — ещё действия') : mode === 'click' ? 'Esc — закрыть' : ''
+  hint.dataset.base = hint.textContent
   hub.appendChild(hint)
   svg.appendChild(hub)
 
@@ -145,6 +156,12 @@ function setHot(i) {
   hot = i
   svg.querySelectorAll('.slice').forEach((g, n) => g.classList.toggle('hot', n === i))
   svg.querySelector('.hub')?.classList.toggle('hot', i === -2)
+  // Подсказка под курсором — в центре: «маленький, для всего», «замазать личное»…
+  const hint = svg.querySelector('.hub .hint')
+  if (!hint) return
+  const tip = current()[i]?.hint
+  hint.textContent = tip ?? hint.dataset.base
+  hint.classList.toggle('tip', !!tip)
 }
 
 function toggleRing() {
@@ -156,7 +173,6 @@ function toggleRing() {
 }
 
 function close() {
-  clearTimeout(closeTimer)
   mode = null
   window.familiar.dragshiftClose()
 }
@@ -171,7 +187,6 @@ async function run(i, paths) {
 // ---------- Открытие ----------
 
 window.familiar.onRadialOpen((opts) => {
-  clearTimeout(closeTimer)
   mode = opts.mode
   files = opts.files
   actions = opts.actions ?? { convert: [], tools: [] }
@@ -179,8 +194,7 @@ window.familiar.onRadialOpen((opts) => {
   hot = -1
   kindsKey = files ? 'known' : ''
   render()
-  // Перетаскивание: если файл так и не долетел до меню (бросили в другом месте) — закрываемся
-  if (mode === 'drag') closeTimer = setTimeout(close, 4000)
+  // Когда закрыться в режиме drag, решает главный процесс: он видит кнопку мыши и Esc
 })
 
 window.familiar.onRadialToggle(toggleRing)
@@ -189,8 +203,8 @@ window.familiar.onRadialToggle(toggleRing)
 
 document.addEventListener('dragenter', async (e) => {
   e.preventDefault()
-  clearTimeout(closeTimer)
   if (mode !== 'drag' || kindsKey) return
+  window.familiar.dragshiftGot()
   // Имена файлов при перетаскивании скрыты, но MIME-тип уже виден — по нему подбираем действия
   const mimes = [...e.dataTransfer.items].filter((i) => i.kind === 'file').map((i) => i.type)
   kindsKey = mimes.join('|') || 'unknown'
@@ -201,20 +215,15 @@ document.addEventListener('dragenter', async (e) => {
 
 document.addEventListener('dragover', (e) => {
   e.preventDefault()
-  // dragleave бывает и при переходе между элементами внутри окна — раз файл над нами, не закрываемся
-  clearTimeout(closeTimer)
   e.dataTransfer.dropEffect = 'copy'
   setHot(hitTest(e.clientX, e.clientY))
 })
 
-document.addEventListener('dragleave', (e) => {
-  // Ушли за пределы окна — ждём чуть-чуть (вдруг вернутся) и закрываемся
-  if (e.relatedTarget === null) closeTimer = setTimeout(close, 600)
-})
+// Увели файл с меню — гасим подсветку; бросят мимо — меню спрячется само (кнопку отпустили)
+document.addEventListener('dragleave', (e) => e.relatedTarget === null && setHot(-1))
 
 document.addEventListener('drop', async (e) => {
   e.preventDefault()
-  clearTimeout(closeTimer)
   const paths = [...e.dataTransfer.files].map((f) => window.familiar.pathForFile(f)).filter(Boolean)
   const i = hitTest(e.clientX, e.clientY)
   if (i >= 0 && current()[i]) return run(i, paths)

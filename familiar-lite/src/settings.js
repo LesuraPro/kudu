@@ -143,6 +143,20 @@ const pages = {
           status.textContent = `Не получилось: ${e.message}`
         }
       }
+      // Палитры: полоска цветов — фон, текст, подписи, акцент, второй акцент
+      const pals = await f.listPalettes()
+      const PALS = {
+        moon: ['Луна и клинок', 'ночь, лунный свет, малиновый клинок'],
+        nothing: ['Nothing', 'чёрное стекло и красный акцент'],
+        wallpaper: ['Из обоев', pals.wallpaper ? 'цвета подобраны по твоим обоям' : 'сначала поставь обои']
+      }
+      const palTiles = Object.entries(PALS).map(([key, [name, desc]]) => {
+        const colors = pals[key] ?? ['#333', '#555', '#777', '#999', '#bbb']
+        const strip = el('div', { className: 'strip' }, colors.map((c) => Object.assign(el('i', {}), { style: `background:${c}` })))
+        const cls = 'pal' + ((config.palette ?? 'moon') === key ? ' active' : '') + (pals[key] ? '' : ' disabled')
+        return el('div', { className: cls, onclick: () => f.setSetting('palette', key) }, strip, el('b', {}, name), el('small', {}, desc))
+      })
+
       const styles = await f.listWallpapers()
       const tiles = Object.entries(styles).map(([style, label]) => {
         const img = el('img', { src: preview(style) })
@@ -154,9 +168,11 @@ const pages = {
 
       return [
         el('h1', {}, 'Оформление'),
-        el('div', { className: 'sub' }, 'Тема и обои запоминаются для текущего профиля.'),
+        el('div', { className: 'sub' }, 'Тема, палитра и обои запоминаются для текущего профиля.'),
         el('h2', {}, 'Тема'),
-        el('div', { className: 'group' }, row('Цвета интерфейса', 'Остров всегда остаётся чёрным — как вырез в экране', seg)),
+        el('div', { className: 'group' }, row('Цвета интерфейса', 'Остров всегда остаётся тёмным — как вырез в экране', seg)),
+        el('h2', {}, 'Палитра'),
+        el('div', { className: 'palettes' }, palTiles),
         el('h2', {}, 'Обои'),
         el('div', { className: 'walls' }, tiles),
         status
@@ -255,12 +271,12 @@ const pages = {
           'div',
           { className: 'sub' },
           'Начни тащить файл, нажми Shift — под курсором появится круговое меню. Отпусти файл на секторе — результат появится рядом, оригинал не трогается. Ещё раз Shift — другие действия. ',
-          'Картинки, PDF, Word и текст; можно и через ПКМ → «Отправить» → «Familiar — преобразовать» или «Преобразовать…» в «Файлах».'
+          'Картинки (10 форматов), PDF ↔ Word, пароль на PDF, окна обрезки, правки, пометок и других инструментов; можно и через ПКМ → «Отправить» → «Familiar — преобразовать» или «Преобразовать…» в «Файлах».'
         ),
         el(
           'div',
           { className: 'group' },
-          row('Включён', 'Shift во время перетаскивания из Проводника, с рабочего стола и из «Файлов»', toggle(d.enabled, (on) => set({ enabled: on }))),
+          row('Включён', 'Shift во время перетаскивания файла из любой программы. В игре на весь экран не мешает', toggle(d.enabled, (on) => set({ enabled: on }))),
           row('Клавиша', 'Нажать, пока тащишь файл', seg([['shift', 'Shift'], ['ctrl', 'Ctrl'], ['alt', 'Alt']], d.key, (v) => set({ key: v }))),
           row('Куда сохранять', null, seg([['beside', 'Рядом'], ['folder', 'В «Преобразовано»']], d.output, (v) => set({ output: v }))),
           row('Пункт в «Отправить»', 'ПКМ по файлу → Отправить → Familiar — преобразовать', toggle(d.sendTo, (on) => set({ sendTo: on })))
@@ -269,8 +285,8 @@ const pages = {
         el(
           'div',
           { className: 'group' },
-          row('JPG и WebP', 'Для «Сжать» и смены формата', seg([[0.7, 'Меньше'], [0.82, 'Баланс'], [0.92, 'Лучше']], d.quality, (v) => set({ quality: v }))),
-          row('«≤ размер»', 'До скольких сжимать, например для сайтов с лимитом', seg([[200, '200 КБ'], [500, '500 КБ'], [1024, '1 МБ'], [2048, '2 МБ']], d.targetKb, (v) => set({ targetKb: v }))),
+          row('JPG и WebP', 'Для смены формата и как начальное качество в окне «Сжать»', seg([[0.7, 'Меньше'], [0.82, 'Баланс'], [0.92, 'Лучше']], d.quality, (v) => set({ quality: v }))),
+          row('«До размера»', 'Цель по умолчанию в окне «Сжать» — например, для сайтов с лимитом', seg([[200, '200 КБ'], [500, '500 КБ'], [1024, '1 МБ'], [2048, '2 МБ']], d.targetKb, (v) => set({ targetKb: v }))),
           row('PDF → картинки', 'Чётче — больше файлы', seg([[96, '96 dpi'], [150, '150'], [300, '300']], d.dpi, (v) => set({ dpi: v })))
         ),
         el(

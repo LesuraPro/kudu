@@ -41,7 +41,22 @@ Widget.define('tty', (card) => {
   let cw = 0
   let ch = 16
   let state = {}
-  const C = { text: '#e8e8e8', dim: '#55555b', mid: '#9a9aa0', red: '#ff2d2d', dark: '#2a2a2e' }
+  // Цвета терминала — из палитры: лунный текст, сталь, клинок. Обновляем каждый кадр
+  // (Dot.css кэширует), чтобы смена палитры сразу была видна
+  const C = {}
+  const inkAlpha = (a) => {
+    const n = parseInt(Dot.css('--ink-text').slice(1), 16)
+    return `rgba(${n >> 16}, ${(n >> 8) & 255}, ${n & 255}, ${a})`
+  }
+  const refreshColors = () => {
+    C.text = Dot.css('--ink-text')
+    C.mid = Dot.css('--ink-dim')
+    C.dim = inkAlpha(0.38)
+    C.dark = inkAlpha(0.16)
+    C.red = Dot.css('--accent')
+    C.petal = Dot.css('--petal')
+  }
+  refreshColors()
 
   const clear = () => {
     chars = Array.from({ length: rows }, () => Array(cols).fill(' '))
@@ -110,7 +125,7 @@ Widget.define('tty', (card) => {
         put(x + 9, 3 + i, v.slice(0, Math.max(0, cols - x - 10)), C.text)
       })
       // Палитра
-      const palette = ['#ff2d2d', '#e8e8e8', '#9a9aa0', '#55555b', '#2a2a2e', '#ff8a8a']
+      const palette = [C.red, C.text, C.mid, C.dim, C.dark, C.petal]
       palette.forEach((c, i) => put(x + i * 3, 4 + lines.length, '██', c))
       // Мигающий курсор в «командной строке»
       const prompt = `${info.user}@familiar:~$ fastfetch --logo familiar `
@@ -250,6 +265,7 @@ Widget.define('tty', (card) => {
       rows = r
       state = {}
     }
+    refreshColors()
     clear()
     scenes[scene](t, dt)
     Widget.text(title, `${info?.user ?? 'user'}@familiar: ~ — ${scene}`)

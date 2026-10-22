@@ -137,8 +137,15 @@ $('theme').addEventListener('click', (e) => {
 const mini = $('miniDots')
 const artDots = $('artDots')
 const PITCH = 2
-const ON = '#f2f2f2'
-const OFF = 'rgba(255,255,255,0.08)'
+// Цвета острова — «чернила» и «лунный свет» из палитры (см. theme.css: --ink-*)
+const ON = () => Dot.css('--ink-text')
+const inkAlpha = (a) => {
+  const n = parseInt(ON().slice(1), 16)
+  return `rgba(${n >> 16}, ${(n >> 8) & 255}, ${n & 255}, ${a})`
+}
+const OFF = () => inkAlpha(0.08)
+// Сменилась палитра — заготовленные полоски перерисуем новыми цветами
+window.addEventListener('familiar-palette', () => (strip = backdrop = null))
 
 // Нарисовать что-то один раз в отдельный canvas, чтобы потом только копировать картинкой
 function offscreen(width, height, draw) {
@@ -158,7 +165,7 @@ let strip = null
 function textStrip(text) {
   if (strip?.text !== text) {
     const width = Dot.width(text) * PITCH
-    strip = { text, width, canvas: offscreen(width, 7 * PITCH, (ctx) => Dot.draw(ctx, text, 0, 0, { pitch: PITCH, on: ON })) }
+    strip = { text, width, canvas: offscreen(width, 7 * PITCH, (ctx) => Dot.draw(ctx, text, 0, 0, { pitch: PITCH, on: ON() })) }
   }
   return strip
 }
@@ -169,7 +176,7 @@ function dotsBackdrop(width) {
     backdrop = {
       width,
       canvas: offscreen(width, 7 * PITCH, (ctx) => {
-        ctx.fillStyle = OFF
+        ctx.fillStyle = OFF()
         for (let x = 0; x < width; x += PITCH) for (let y = 0; y < 7; y++) {
           ctx.beginPath()
           ctx.arc(x + PITCH / 2, y * PITCH + PITCH / 2, PITCH * 0.36, 0, Math.PI * 2)
@@ -228,7 +235,7 @@ function draw(now, dt) {
       mini.dataset.w = String(w)
       ctx.clearRect(0, 0, w, h)
       const tw = Dot.width(time) * PITCH
-      Dot.draw(ctx, time, (w - tw) / 2, 0, { pitch: PITCH, on: ON, off: OFF })
+      Dot.draw(ctx, time, (w - tw) / 2, 0, { pitch: PITCH, on: ON(), off: OFF() })
     }
   }
 
@@ -243,7 +250,7 @@ function draw(now, dt) {
     for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
       const d = Math.hypot(x - 3, y - 3)
       const b = playing ? 0.5 + 0.5 * Math.sin(now / 250 - d * 1.3) : d < 1 ? 1 : 0.15
-      a.ctx.fillStyle = d < 0.5 ? Dot.css('--accent') : `rgba(255,255,255,${0.1 + b * 0.8})`
+      a.ctx.fillStyle = d < 0.5 ? Dot.css('--accent') : inkAlpha(0.1 + b * 0.8)
       a.ctx.beginPath()
       a.ctx.arc(x * p + p / 2, y * p + p / 2, p * 0.32, 0, Math.PI * 2)
       a.ctx.fill()

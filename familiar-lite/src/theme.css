@@ -1,23 +1,40 @@
-/* Общий стиль в духе Nothing: чёрное стекло, моноширинный текст,
-   точечные (dot-matrix) цифры и один красный акцент.
+/* Общий стиль: точечные (dot-matrix) цифры, моноширинный текст, стекло — и палитра
+   «Луна и клинок» по обоям Лёхи: чёрная тушь с синевой ночного неба, лунный свет вместо
+   белого, малиновый светящийся акцент, как клинки, и розовый — как лепестки.
+   Это значения по умолчанию; другую палитру («Nothing» или «Из обоев») preload.js
+   вставляет поверх отдельным <style> — цвета считает lib/palette.js.
    Тема переключается через nativeTheme в main.js, окна реагируют на prefers-color-scheme. */
 :root {
-  --bg: rgba(10, 10, 12, 0.9);
-  --bg-strong: rgba(16, 16, 18, 0.97);
-  --border: rgba(255, 255, 255, 0.09);
-  --border-strong: rgba(255, 255, 255, 0.2);
-  --text: #f2f2f2;
-  --muted: #8b8b90;
-  --dot-off: rgba(255, 255, 255, 0.1);
-  --accent: #ff2d2d;
-  --hover: rgba(255, 255, 255, 0.07);
+  --bg: rgba(5, 15, 22, 0.9);
+  --bg-strong: rgba(8, 22, 32, 0.97);
+  --solid: #081620;
+  --border: rgba(227, 238, 240, 0.1);
+  --border-strong: rgba(227, 238, 240, 0.24);
+  --text: #e3eef0;
+  --muted: #7f9198;
+  --dot-off: rgba(227, 238, 240, 0.1);
+  --accent: #f0195b;
+  /* Акцент светится, как клинки на обоях */
+  --accent-glow: rgba(240, 25, 91, 0.45);
+  --accent-soft: rgba(240, 25, 91, 0.16);
+  --on-accent: #ffffff;
+  --petal: #f29ac8;
+  --hover: rgba(227, 238, 240, 0.07);
   /* Тень обязана помещаться в прозрачный запас вокруг карточки (8px у виджетов):
      большую тень край окна обрезает, и вокруг карточки виден тёмный прямоугольник */
-  --shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
-  /* Светлая кромка сверху — карточка читается как стекло */
-  --edge: inset 0 1px 0 rgba(255, 255, 255, 0.07);
-  /* Едва заметная точечная сетка на фоне карточек — подпись стиля Nothing */
-  --texture: radial-gradient(circle, rgba(255, 255, 255, 0.035) 1px, transparent 1.4px);
+  --shadow: 0 2px 6px rgba(2, 6, 8, 0.5);
+  /* Светлая кромка сверху — карточка читается как стекло в лунном свете */
+  --edge: inset 0 1px 0 rgba(227, 238, 240, 0.08);
+  /* Едва заметная точечная сетка на фоне карточек */
+  --texture: radial-gradient(circle, rgba(227, 238, 240, 0.04) 1px, transparent 1.4px);
+  /* Подложка под картинкой в окнах инструментов — «шахматка», видно прозрачность */
+  --stage: conic-gradient(rgba(227, 238, 240, 0.035) 25%, transparent 0 50%, rgba(227, 238, 240, 0.035) 0 75%, transparent 0) 0 0 / 22px 22px, #050b0f;
+  /* Остров всегда тёмный, как Dynamic Island, — его цвета от светлой темы не зависят */
+  --ink: #02070a;
+  --ink-text: #e3eef0;
+  --ink-dim: #7f9198;
+  --ink-muted: rgba(227, 238, 240, 0.45);
+  --ink-line: rgba(227, 238, 240, 0.1);
   --radius-card: 22px;
   --spring: cubic-bezier(0.34, 1.45, 0.5, 1);
   --mono: 'Cascadia Mono', 'JetBrains Mono', Consolas, ui-monospace, monospace;
@@ -26,17 +43,22 @@
 
 @media (prefers-color-scheme: light) {
   :root {
-    --bg: rgba(240, 240, 240, 0.93);
-    --bg-strong: rgba(250, 250, 250, 0.97);
-    --border: rgba(0, 0, 0, 0.08);
-    --border-strong: rgba(0, 0, 0, 0.2);
-    --text: #111;
-    --muted: #6b6b70;
-    --dot-off: rgba(0, 0, 0, 0.1);
-    --hover: rgba(0, 0, 0, 0.06);
-    --shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
+    --bg: rgba(230, 239, 241, 0.93);
+    --bg-strong: rgba(238, 245, 247, 0.97);
+    --solid: #eef5f7;
+    --border: rgba(6, 20, 28, 0.1);
+    --border-strong: rgba(6, 20, 28, 0.22);
+    --text: #06141c;
+    --muted: #536a75;
+    --dot-off: rgba(6, 20, 28, 0.1);
+    --accent: #d3124f;
+    --accent-glow: rgba(211, 18, 79, 0.3);
+    --accent-soft: rgba(211, 18, 79, 0.12);
+    --hover: rgba(6, 20, 28, 0.06);
+    --shadow: 0 2px 6px rgba(6, 20, 28, 0.14);
     --edge: inset 0 1px 0 rgba(255, 255, 255, 0.85);
-    --texture: radial-gradient(circle, rgba(0, 0, 0, 0.05) 1px, transparent 1.4px);
+    --texture: radial-gradient(circle, rgba(6, 20, 28, 0.05) 1px, transparent 1.4px);
+    --stage: conic-gradient(rgba(6, 20, 28, 0.05) 25%, transparent 0 50%, rgba(6, 20, 28, 0.05) 0 75%, transparent 0) 0 0 / 22px 22px, #e6eff1;
   }
 }
 
@@ -80,6 +102,7 @@ body, .glass, button, input {
   margin-right: 8px;
   border-radius: 50%;
   background: var(--accent);
+  box-shadow: 0 0 8px var(--accent-glow);
   vertical-align: 1px;
 }
 
@@ -126,3 +149,10 @@ button {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Полосы прокрутки — тонкие, в цвет палитры, а не системные серые */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { border-radius: 4px; background: var(--border-strong); border: 2px solid transparent; background-clip: padding-box; }
+::-webkit-scrollbar-thumb:hover { background: var(--muted); background-clip: padding-box; }
+::-webkit-scrollbar-corner { background: transparent; }

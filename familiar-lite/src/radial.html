@@ -13,34 +13,39 @@
       @keyframes ring-in { from { opacity: 0; transform: scale(0.55) rotate(-25deg); } }
       @keyframes ring-swap { from { opacity: 0.2; transform: scale(0.85) rotate(40deg); } }
 
-      /* Сектор: «жидкое стекло» Nothing — тёмное, с тонкой кромкой; под курсором — красный */
+      /* Меню всегда тёмное (оно поверх чего угодно): сектора — тушь с лунной кромкой,
+         под курсором — светящийся малиновый клинок. Цвета — из палитры (--ink-*, --accent) */
+      body { background: radial-gradient(circle at center, color-mix(in srgb, var(--ink-text) 9%, transparent) 0, transparent 68%); }
       .slice path {
-        fill: rgba(16, 16, 18, 0.9);
-        stroke: rgba(255, 255, 255, 0.12);
+        fill: color-mix(in srgb, var(--ink) 92%, transparent);
+        stroke: var(--ink-line);
         stroke-width: 1;
-        transition: fill 0.15s;
+        transition: fill 0.15s, filter 0.2s;
       }
-      .slice .icon circle { fill: #f2f2f2; transition: fill 0.15s; }
+      .slice .icon circle { fill: var(--ink-text); transition: fill 0.15s; }
       .slice text {
-        fill: #d8d8dc;
+        fill: var(--ink-dim);
         font: 600 11px var(--mono);
         letter-spacing: 0.08em;
         text-anchor: middle;
         text-transform: uppercase;
+        transition: fill 0.15s;
       }
-      .slice.format text { font-size: 15px; fill: #f2f2f2; letter-spacing: 0.12em; }
+      .slice.format text { font-size: 15px; fill: var(--ink-text); letter-spacing: 0.12em; }
       .slice { animation: slice-in 0.35s var(--spring) both; transform-origin: 210px 210px; }
       @keyframes slice-in { from { opacity: 0; transform: scale(0.7); } }
-      .slice.hot path { fill: var(--accent); stroke: rgba(255, 255, 255, 0.35); }
-      .slice.hot text { fill: #fff; }
+      .slice.hot path { fill: var(--accent); stroke: color-mix(in srgb, #fff 40%, var(--accent)); filter: drop-shadow(0 0 10px var(--accent-glow)); }
+      .slice.hot text { fill: var(--on-accent); }
+      .slice.hot .icon circle { fill: var(--on-accent); }
 
-      .hub circle.disc { fill: rgba(8, 8, 10, 0.94); stroke: rgba(255, 255, 255, 0.14); }
+      .hub circle.disc { fill: color-mix(in srgb, var(--ink) 96%, transparent); stroke: var(--ink-line); transition: stroke 0.2s; }
       .hub.hot circle.disc { stroke: var(--accent); }
       .hub text { text-anchor: middle; font-family: var(--mono); }
-      .hub .file { fill: #a0a0a5; font-size: 10px; }
-      .hub .hint { fill: #6f6f75; font-size: 9px; letter-spacing: 0.08em; }
-      .dotline circle { fill: #f2f2f2; }
-      .dotline circle.off { fill: rgba(255, 255, 255, 0.12); }
+      .hub .file { fill: var(--ink-dim); font-size: 10px; }
+      .hub .hint { fill: var(--ink-muted); font-size: 9px; letter-spacing: 0.08em; }
+      .hub .hint.tip { fill: var(--petal); }
+      .dotline circle { fill: var(--ink-text); }
+      .dotline circle.off { fill: color-mix(in srgb, var(--ink-text) 12%, transparent); }
     </style>
   </head>
   <body>

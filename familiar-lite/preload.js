@@ -75,6 +75,7 @@ contextBridge.exposeInMainWorld('familiar', {
   chooseProfilePhoto: (id) => ipcRenderer.invoke('profiles:photo', id),
   clearProfilePhoto: (id) => ipcRenderer.invoke('profiles:photo-clear', id),
   listWallpapers: () => ipcRenderer.invoke('wallpapers:list'),
+  listPalettes: () => ipcRenderer.invoke('palette:list'),
   applyWallpaper: (style) => ipcRenderer.invoke('wallpaper:apply', style),
   chooseWallpaper: () => ipcRenderer.invoke('wallpaper:choose'),
   searchCity: (q) => ipcRenderer.invoke('geo:search', q),
@@ -87,8 +88,14 @@ contextBridge.exposeInMainWorld('familiar', {
   workerReady: () => ipcRenderer.send('convert:ready'),
   dragshiftActions: (kinds) => ipcRenderer.invoke('dragshift:actions', kinds),
   dragshiftKinds: (paths) => ipcRenderer.invoke('dragshift:kinds', paths),
-  dragshiftRun: (actionId, paths) => ipcRenderer.invoke('dragshift:run', actionId, paths),
+  dragshiftRun: (actionId, paths, options) => ipcRenderer.invoke('dragshift:run', actionId, paths, options),
   dragshiftClose: () => ipcRenderer.send('dragshift:close'),
+  dragshiftGot: () => ipcRenderer.send('dragshift:got'),
+  // Окна инструментов
+  toolRead: (p) => ipcRenderer.invoke('tool:read', p),
+  toolMeta: (p) => ipcRenderer.invoke('tool:meta', p),
+  toolSave: (src, suffix, ext, bytes) => ipcRenderer.invoke('tool:save', src, suffix, ext, bytes),
+  toolRun: (actionId, paths, options) => ipcRenderer.invoke('tool:run', actionId, paths, options),
   convertFiles: (paths) => ipcRenderer.send('dragshift:open', paths),
   // Начать системное перетаскивание файла из нашего окна (в Проводник, в другие программы, в конвертер)
   startDrag: (path) => ipcRenderer.send('file:drag', path),
@@ -97,3 +104,28 @@ contextBridge.exposeInMainWorld('familiar', {
   onToast: on('toast:show'),
   toastAction: (action) => ipcRenderer.invoke('toast:action', action)
 })
+
+// ---------- Палитра оформления ----------
+// Цвета (lib/palette.js) кладём отдельным <style> поверх theme.css. Берём синхронно, сразу
+// при загрузке: окно не должно мигнуть палитрой по умолчанию. preload видит тот же DOM,
+// что и страница, а событие «familiar-palette» говорит рисовалкам сбросить кэш цветов
+let paletteCss = ''
+try {
+  paletteCss = ipcRenderer.sendSync('palette:get') ?? ''
+} catch {}
+function applyPalette(css) {
+  paletteCss = css
+  // Служебным окнам без интерфейса (хозяева, рабочее окно конвертера, генератор обоев) палитра не нужна
+  if (!document.querySelector('link[href$="theme.css"]')) return
+  let style = document.getElementById('familiar-palette')
+  if (!style) {
+    style = document.createElement('style')
+    style.id = 'familiar-palette'
+    ;(document.head ?? document.documentElement).appendChild(style)
+  }
+  style.textContent = css
+  window.dispatchEvent(new Event('familiar-palette'))
+}
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => applyPalette(paletteCss))
+else applyPalette(paletteCss)
+ipcRenderer.on('palette', (_e, css) => applyPalette(css))

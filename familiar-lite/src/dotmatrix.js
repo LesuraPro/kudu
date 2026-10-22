@@ -181,6 +181,8 @@
     return colors.get(name)
   }
   matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => colors.clear())
+  // Палитру сменили в настройках (событие шлёт preload.js)
+  window.addEventListener('familiar-palette', () => colors.clear())
 
   window.Dot = { glyph, bitmap, width, draw, batch, fit, css }
 })()

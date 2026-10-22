@@ -1,5 +1,11 @@
 // Нагрузка: линия ЦП или памяти за последние 2 минуты + текущий процент точками.
 // Клик по названию переключает CPU / RAM.
+// #rrggbb → rgba(…, a)
+const withAlpha = (hex, a) => {
+  const n = parseInt(hex.slice(1), 16)
+  return `rgba(${n >> 16}, ${(n >> 8) & 255}, ${n & 255}, ${a})`
+}
+
 Widget.define('system', (card) => {
   const MODES = { cpu: 'CPU', mem: 'RAM' }
   let mode = localStorage.sysMode in MODES ? localStorage.sysMode : 'cpu'
@@ -72,8 +78,9 @@ Widget.define('system', (card) => {
       pts[pts.length - 1][1] = h - 4 - shown * (h - 8)
 
       const fill = ctx.createLinearGradient(0, 0, 0, h)
-      fill.addColorStop(0, hot ? 'rgba(255,45,45,0.35)' : 'rgba(255,255,255,0.18)')
-      fill.addColorStop(1, 'rgba(255,255,255,0)')
+      // Заливка под графиком: обычно — цвет текста, под нагрузкой — акцент
+      fill.addColorStop(0, withAlpha(hot ? accent : on, hot ? 0.35 : 0.18))
+      fill.addColorStop(1, withAlpha(on, 0))
       ctx.beginPath()
       ctx.moveTo(pts[0][0], h)
       for (const [x, y] of pts) ctx.lineTo(x, y)
